@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drama_subtitler"
+version = "0.1.0"
+description = "Whisper-based bilingual subtitle pipeline for Japanese/Korean drama."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+  "requests>=2.28",
+  "faster-whisper>=1.1",
+]
+
+[project.optional-dependencies]
+# The legacy Flask web UI lives under app/. Install with `pip install
+# .[webapp]` to get those deps as well; library consumers (nasorg) don't
+# need them.
+webapp = [
+  "flask>=2.2",
+  "python-dotenv>=1.0",
+]
+dev = [
+  "pytest>=7",
+  "pytest-mock>=3",
+]
+
+[project.scripts]
+drama-subtitler-models = "drama_subtitler.models:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["drama_subtitler*"]
+exclude = ["app*", "tests*", "media*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+markers = [
+    "unit: fast isolated unit tests",
+    "integration: tests that call real external APIs (Ollama, OpenRouter, etc.)",
+    "slow: tests that take >5s or load large models",
+    "ollama: tests that require a running Ollama daemon",
+    "openrouter: tests that require an OpenRouter API key",
+]

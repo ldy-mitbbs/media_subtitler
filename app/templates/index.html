@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drama Subtitler</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header>
+  <h1>Drama Subtitler</h1>
+  <p class="subtitle">
+    Transcribe any video and translate subtitles between any supported languages.
+  </p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Start a job</h2>
+
+    <div class="form-row">
+      <label for="source-language">Source language</label>
+      <select id="source-language">
+        <option value="">Auto-detect</option>
+        {% for code, name in language_options %}
+        <option value="{{ code }}">{{ name }} ({{ code }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Run mode</label>
+      <div class="row">
+        <label class="inline">
+          <input type="radio" name="run-mode" value="full" checked>
+          Transcribe + translate
+        </label>
+        <label class="inline">
+          <input type="radio" name="run-mode" value="transcribe">
+          Transcribe only (pick translation model after)
+        </label>
+        <label class="inline">
+          <input type="radio" name="run-mode" value="translate">
+          Translate only (requires existing .orig.srt)
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="target-language">Target language</label>
+      <select id="target-language">
+        {% for code, name in language_options %}
+        <option value="{{ code }}" {% if code == target_language %}selected{% endif %}>{{ name }} ({{ code }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="whisper-model">
+        Whisper model
+        <span class="hint" id="whisper-defaults"></span>
+      </label>
+      <input id="whisper-model" type="text" list="whisper-model-list" placeholder="(use default)">
+      <datalist id="whisper-model-list">
+        <option value="tiny">
+        <option value="base">
+        <option value="small">
+        <option value="medium">
+        <option value="large-v2">
+        <option value="large-v3">
+        <option value="large-v3-turbo">
+      </datalist>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-model">
+        Translation model
+        <span class="hint" id="translation-defaults"></span>
+      </label>
+      <input id="translation-model" type="text" list="translation-model-list" placeholder="(use default)">
+      <div class="hint" id="translation-pricing"></div>
+      <details class="model-picker" id="model-picker">
+        <summary>Browse models (sort &amp; filter)</summary>
+        <div class="model-picker-controls">
+          <input type="search" id="model-picker-search" placeholder="Filter by name…">
+          <div class="model-picker-sort" role="tablist">
+            <button type="button" data-sort="newest" class="active">Newest</button>
+            <button type="button" data-sort="cheapest">Cheapest</button>
+            <button type="button" data-sort="alpha">A–Z</button>
+          </div>
+          <label class="model-picker-toggle">Released:
+            <select id="model-picker-age">
+              <option value="0">Any time</option>
+              <option value="3">Past 3 months</option>
+              <option value="6">Past 6 months</option>
+              <option value="12">Past 12 months</option>
+              <option value="24">Past 2 years</option>
+            </select>
+          </label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-free-only"> Free only</label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-json-only"> JSON-mode only</label>
+        </div>
+        <div class="model-picker-list" id="model-picker-list"></div>
+      </details>
+      <datalist id="translation-model-list">
+        <!-- Populated dynamically from /api/openrouter/models. Static fallback below. -->
+        <option value="deepseek-v4-flash">deepseek-v4-flash (DeepSeek)
+        <option value="deepseek-v4-pro">deepseek-v4-pro (DeepSeek)
+        <option value="qwen2.5:14b">qwen2.5:14b (Ollama)
+        <option value="qwen2.5:32b">qwen2.5:32b (Ollama)
+        <option value="llama3.1:8b">llama3.1:8b (Ollama)
+      </datalist>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-chunk-size">
+        Translation chunk size
+        <span class="hint" id="chunk-size-hint">Auto-tuned based on the model. Lower = more reliable, slower &amp; pricier.</span>
+      </label>
+      <input id="translation-chunk-size" type="number" min="1" max="50" step="1">
+    </div>
+
+    <div class="form-row">
+      <label>Existing media file</label>
+      <div class="row">
+        <select id="media-file"></select>
+        <button id="refresh-media" type="button">Refresh</button>
+        <button id="start-existing" type="button" class="primary">Run</button>
+      </div>
+      <div class="hint" id="estimate-hint"></div>
+    </div>
+
+    <div class="form-row">
+      <label for="upload-input">Upload a file</label>
+      <div class="row">
+        <input id="upload-input" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.ts,.m4v,.m4a,.mp3,.wav,.aac,.flac">
+        <button id="start-upload" type="button" class="primary">Upload &amp; run</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Jobs</h2>
+    <div id="jobs"></div>
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
