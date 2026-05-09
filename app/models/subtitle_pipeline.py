@@ -843,8 +843,9 @@ class SubtitlePipeline:
                     )
                 audio_path = compressed_path
 
+            audio_size_mb = audio_path.stat().st_size / (1024 * 1024)
             if progress_cb:
-                progress_cb(10, "Sending audio to OpenAI Whisper API")
+                progress_cb(8, f"Audio ready ({audio_size_mb:.1f} MB), uploading to OpenAI Whisper API")
 
             url = "https://api.openai.com/v1/audio/transcriptions"
             data = {
@@ -853,6 +854,22 @@ class SubtitlePipeline:
             }
             if language_hint:
                 data["language"] = language_hint
+
+            if progress_cb:
+                progress_cb(10, "Waiting for OpenAI Whisper API (this may take 2–5 min for a full episode)...")
+
+            # Pulse a heartbeat message every 10 s so the UI doesn't look frozen
+            # while requests.post blocks on the upload + server-side processing.
+            _heartbeat_done = threading.Event()
+            def _heartbeat():
+                for _ in range(30):
+                    _heartbeat_done.wait(10)
+                    if _heartbeat_done.is_set():
+                        break
+                    if progress_cb:
+                        progress_cb(10, "Still waiting for OpenAI Whisper API...")
+            _heartbeat_thread = threading.Thread(target=_heartbeat, daemon=True)
+            _heartbeat_thread.start()
 
             with open(audio_path, "rb") as f:
                 files = {"file": (audio_path.name, f, "audio/mpeg")}
@@ -863,6 +880,11 @@ class SubtitlePipeline:
                     files=files,
                     timeout=600,
                 )
+
+            _heartbeat_done.set()
+
+            if progress_cb:
+                progress_cb(50, "Received response from OpenAI Whisper API")
 
             if resp.status_code != 200:
                 try:
