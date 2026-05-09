@@ -247,6 +247,7 @@ class SubtitlePipeline:
         self.whisper_cpp_command = config.get("WHISPER_CPP_COMMAND", "whisper-cli")
         self.whisper_cpp_model_path = config.get("WHISPER_CPP_MODEL_PATH", "")
         self.whisper_cpp_threads = int(config.get("WHISPER_CPP_THREADS", 0) or 0)
+        self.openai_api_key = config.get("OPENAI_API_KEY", "") or ""
 
         self.ollama_base_url = config.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self.translation_backend = (
@@ -427,6 +428,8 @@ class SubtitlePipeline:
             return "whispercpp"
         if backend in {"faster-whisper", "faster_whisper"}:
             return "faster-whisper"
+        if backend == "openai":
+            return "openai"
         if backend == "auto":
             return "whispercpp" if shutil.which(self.whisper_cpp_command) else "faster-whisper"
         raise RuntimeError(f"Unsupported WHISPER_BACKEND: {self.whisper_backend}")
@@ -434,6 +437,8 @@ class SubtitlePipeline:
     def _transcribe(self, media_path, backend, progress_cb=None, language_hint=None):
         if backend == "whispercpp":
             return self._transcribe_with_whispercpp(media_path, progress_cb, language_hint)
+        if backend == "openai":
+            return self._transcribe_with_openai(media_path, progress_cb, language_hint)
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
 
     def _transcribe_with_faster_whisper(self, media_path, progress_cb=None, language_hint=None):
@@ -763,6 +768,133 @@ class SubtitlePipeline:
                 or "unknown ffmpeg error"
             )
             raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
+
+    def _transcribe_with_openai(self, media_path, progress_cb=None, language_hint=None):
+        api_key = self.openai_api_key
+        if not api_key:
+            raise RuntimeError(
+                "OpenAI API key is not set. Set OPENAI_API_KEY in config or environment."
+            )
+
+        if progress_cb:
+            progress_cb(5, "Preparing audio for OpenAI Whisper API")
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to prepare audio for OpenAI API")
+
+        max_bytes = 25 * 1024 * 1024
+
+        with tempfile.TemporaryDirectory(prefix="drama-subtitler-openai-") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            audio_path = temp_dir_path / "audio.mp3"
+
+            # Extract audio to MP3 at 24 kbps mono to stay under the 25 MB limit.
+            cmd = [
+                ffmpeg_path,
+                "-y",
+                "-i",
+                str(media_path),
+                "-vn",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-b:a",
+                "24k",
+                str(audio_path),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, check=False)
+            if completed.returncode != 0:
+                stderr = (
+                    completed.stderr.decode("utf-8", errors="replace").strip()
+                    or completed.stdout.decode("utf-8", errors="replace").strip()
+                    or "unknown ffmpeg error"
+                )
+                raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
+
+            # Re-compress at a lower bitrate if still too large.
+            if audio_path.stat().st_size > max_bytes:
+                if progress_cb:
+                    progress_cb(7, "Compressing audio further for OpenAI API")
+                compressed_path = temp_dir_path / "audio_compressed.mp3"
+                cmd = [
+                    ffmpeg_path,
+                    "-y",
+                    "-i",
+                    str(audio_path),
+                    "-vn",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    "-b:a",
+                    "16k",
+                    str(compressed_path),
+                ]
+                completed = subprocess.run(cmd, capture_output=True, check=False)
+                if completed.returncode != 0:
+                    raise RuntimeError("ffmpeg re-compression failed")
+                if compressed_path.stat().st_size > max_bytes:
+                    raise RuntimeError(
+                        f"Audio file is too large even after compression "
+                        f"({compressed_path.stat().st_size / 1e6:.1f} MB > 25 MB). "
+                        "Consider splitting the media into smaller files."
+                    )
+                audio_path = compressed_path
+
+            if progress_cb:
+                progress_cb(10, "Sending audio to OpenAI Whisper API")
+
+            url = "https://api.openai.com/v1/audio/transcriptions"
+            data = {
+                "model": "whisper-1",
+                "response_format": "verbose_json",
+            }
+            if language_hint:
+                data["language"] = language_hint
+
+            with open(audio_path, "rb") as f:
+                files = {"file": (audio_path.name, f, "audio/mpeg")}
+                resp = requests.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    data=data,
+                    files=files,
+                    timeout=600,
+                )
+
+            if resp.status_code != 200:
+                try:
+                    err = resp.json()
+                    msg = err.get("error", {}).get("message", resp.text)
+                except Exception:
+                    msg = resp.text
+                raise RuntimeError(
+                    f"OpenAI Whisper API error ({resp.status_code}): {msg}"
+                )
+
+            if progress_cb:
+                progress_cb(55, "Parsing OpenAI transcription response")
+
+            payload = resp.json()
+            segments = []
+            for seg in payload.get("segments", []):
+                text = str(seg.get("text", "")).strip()
+                if not text:
+                    continue
+                segments.append(
+                    {
+                        "start": float(seg.get("start", 0)),
+                        "end": float(seg.get("end", 0)),
+                        "text": text,
+                    }
+                )
+
+            source_language = payload.get("language", language_hint or "unknown")
+            segments = self._repair_mojibake_segments(segments)
+            segments = _dedupe_repeated_segments(segments)
+            return segments, source_language
 
     # --------------------------------------------------------------- translation
 

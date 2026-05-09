@@ -25,6 +25,8 @@ class Config:
     WHISPER_CPP_MODEL_PATH = os.environ.get("WHISPER_CPP_MODEL_PATH") or ""
     WHISPER_CPP_THREADS = int(os.environ.get("WHISPER_CPP_THREADS") or 0)
 
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or ""
+
     # --- Translation ---
     TRANSLATION_BACKEND = (os.environ.get("TRANSLATION_BACKEND") or "openrouter").strip().lower()
     OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL") or "http://127.0.0.1:11434"
