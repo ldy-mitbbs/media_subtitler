@@ -769,6 +769,42 @@ class SubtitlePipeline:
             )
             raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
 
+    @staticmethod
+    def _run_ffmpeg_progress(cmd, *, label: str = "Extracting audio", progress_cb=None):
+        """Run ffmpeg and stream progress messages from stderr/stdout.
+
+        ffmpeg prints lines like ``size=  1234kB time=00:02:30.00 ...``
+        to stderr. We parse the ``time=`` field and pulse it through
+        *progress_cb* so the UI doesn't look frozen during a long extract.
+        """
+        import re
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        time_re = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
+        last_msg = ""
+
+        def _reader():
+            nonlocal last_msg
+            for line in proc.stdout:  # type: ignore[union-attr]
+                m = time_re.search(line)
+                if m:
+                    h, mi, s = m.groups()
+                    last_msg = f"{label}: {h}:{mi}:{s[:5]}"
+                    if progress_cb:
+                        progress_cb(None, last_msg)
+
+        reader = threading.Thread(target=_reader, daemon=True)
+        reader.start()
+        proc.wait()
+        reader.join(timeout=2)
+        return proc.returncode, last_msg
+
     def _transcribe_with_openai(self, media_path, progress_cb=None, language_hint=None):
         api_key = self.openai_api_key
         if not api_key:
@@ -804,14 +840,13 @@ class SubtitlePipeline:
                 "24k",
                 str(audio_path),
             ]
-            completed = subprocess.run(cmd, capture_output=True, check=False)
-            if completed.returncode != 0:
-                stderr = (
-                    completed.stderr.decode("utf-8", errors="replace").strip()
-                    or completed.stdout.decode("utf-8", errors="replace").strip()
-                    or "unknown ffmpeg error"
-                )
-                raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
+            if progress_cb:
+                progress_cb(6, "Extracting audio from video...")
+            rc, _ = self._run_ffmpeg_progress(
+                cmd, label="Extracting audio", progress_cb=progress_cb
+            )
+            if rc != 0:
+                raise RuntimeError("ffmpeg audio extraction failed")
 
             # Re-compress at a lower bitrate if still too large.
             if audio_path.stat().st_size > max_bytes:
@@ -832,8 +867,12 @@ class SubtitlePipeline:
                     "16k",
                     str(compressed_path),
                 ]
-                completed = subprocess.run(cmd, capture_output=True, check=False)
-                if completed.returncode != 0:
+                if progress_cb:
+                    progress_cb(7, "Re-compressing audio...")
+                rc, _ = self._run_ffmpeg_progress(
+                    cmd, label="Re-compressing audio", progress_cb=progress_cb
+                )
+                if rc != 0:
                     raise RuntimeError("ffmpeg re-compression failed")
                 if compressed_path.stat().st_size > max_bytes:
                     raise RuntimeError(
