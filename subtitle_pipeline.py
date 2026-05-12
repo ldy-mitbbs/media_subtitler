@@ -4,6 +4,7 @@
 """CLI entry point for the drama subtitle pipeline."""
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -17,9 +18,21 @@ except ImportError:
 def load_env_files():
     if load_dotenv is None:
         return
+    root = Path(__file__).resolve().parent
     # Keep shell-exported vars as highest priority.
-    load_dotenv(dotenv_path=".env", override=False)
-    load_dotenv(dotenv_path=".env.local", override=False)
+    load_dotenv(dotenv_path=root / ".env", override=False)
+    load_dotenv(dotenv_path=root / ".env.local", override=False)
+
+
+def configure_windows_console():
+    if sys.platform != "win32":
+        return
+    os.environ.setdefault("PYTHONUTF8", "1")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 def build_config(overrides):
@@ -34,6 +47,8 @@ def build_config(overrides):
         "WHISPER_CPP_COMMAND": Config.WHISPER_CPP_COMMAND,
         "WHISPER_CPP_MODEL_PATH": Config.WHISPER_CPP_MODEL_PATH,
         "WHISPER_CPP_THREADS": Config.WHISPER_CPP_THREADS,
+        "GPU_BASE_URL": Config.GPU_BASE_URL,
+        "REMOTE_WHISPER_BASE_URL": Config.REMOTE_WHISPER_BASE_URL,
         "TRANSLATION_BACKEND": Config.TRANSLATION_BACKEND,
         "OLLAMA_BASE_URL": Config.OLLAMA_BASE_URL,
         "OPENROUTER_BASE_URL": Config.OPENROUTER_BASE_URL,
@@ -50,6 +65,13 @@ def build_config(overrides):
     for key, value in overrides.items():
         if value is not None:
             cfg[key] = value
+    gpu_base_url = str(cfg.get("GPU_BASE_URL") or "").rstrip("/").rstrip(":")
+    if gpu_base_url:
+        cfg["GPU_BASE_URL"] = gpu_base_url
+        if not cfg.get("REMOTE_WHISPER_BASE_URL"):
+            cfg["REMOTE_WHISPER_BASE_URL"] = f"{gpu_base_url}:5051"
+        if not overrides.get("OLLAMA_BASE_URL") and not os.environ.get("OLLAMA_BASE_URL"):
+            cfg["OLLAMA_BASE_URL"] = f"{gpu_base_url}:11434"
     return cfg
 
 
@@ -68,6 +90,7 @@ def resolve_input_path(input_arg, media_dir):
 
 
 def main():
+    configure_windows_console()
     load_env_files()
 
     parser = argparse.ArgumentParser(
@@ -82,13 +105,15 @@ def main():
         "--source-language",
         help="Force source language (e.g. ja, ko). Default: auto-detect.",
     )
-    parser.add_argument("--whisper-backend", help="Whisper backend (faster-whisper/whispercpp/auto)")
+    parser.add_argument("--whisper-backend", help="Whisper backend (faster-whisper/remote-faster-whisper/whispercpp/openai/auto)")
     parser.add_argument("--whisper-model", help="Whisper model name")
     parser.add_argument("--whisper-device", help="Whisper device (auto/cpu/cuda)")
     parser.add_argument("--whisper-compute-type", help="Whisper compute type")
     parser.add_argument("--whispercpp-command", help="whisper.cpp CLI command name/path")
     parser.add_argument("--whispercpp-model-path", help="Path to whisper.cpp ggml model file")
     parser.add_argument("--whispercpp-threads", type=int, help="whisper.cpp thread count")
+    parser.add_argument("--gpu-base-url", help="Remote GPU base URL; derives Ollama :11434 and Whisper :5051")
+    parser.add_argument("--remote-whisper-base-url", help="Remote faster-whisper server URL")
     parser.add_argument("--translation-backend", help="Translation backend ('ollama', 'openrouter', or 'deepseek')")
     parser.add_argument("--translation-model", help="Translation model name (Ollama tag, OpenRouter slug, or DeepSeek model)")
     parser.add_argument("--translation-chunk-size", type=int, help="Subtitle lines per translation chunk")
@@ -120,6 +145,8 @@ def main():
         "WHISPER_CPP_COMMAND": args.whispercpp_command,
         "WHISPER_CPP_MODEL_PATH": args.whispercpp_model_path,
         "WHISPER_CPP_THREADS": args.whispercpp_threads,
+        "GPU_BASE_URL": args.gpu_base_url,
+        "REMOTE_WHISPER_BASE_URL": args.remote_whisper_base_url,
         "TRANSLATION_BACKEND": args.translation_backend,
         "TRANSLATION_MODEL": args.translation_model,
         "TRANSLATION_CHUNK_SIZE": args.translation_chunk_size,

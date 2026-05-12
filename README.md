@@ -10,12 +10,13 @@
 
 ## 功能
 
-- **Whisper 转录**：支持 `faster-whisper` 和 `whisper.cpp`（Apple Silicon 上自动选用后者）。
+- **Whisper 转录**：支持 `faster-whisper`、远程 GPU `faster-whisper`、`whisper.cpp`（Apple Silicon 上自动选用后者）和 OpenAI Whisper API。
 - **自动语言识别**：支持 Whisper 能识别的任意源语言。
 - **多翻译后端**：
   - `ollama` — 本地 `/api/chat` 端点。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
+- **远程 GPU 支持**：可把 Whisper 转录和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写 SRT。
 - **输出**：
   - `<media>.orig.srt` — 源语言转录字幕。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
@@ -25,17 +26,57 @@
 
 ## 安装
 
+### macOS / Linux
+
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Windows fresh clone
+
+在 PowerShell 里：
+
+```powershell
+git clone <repo-url> drama_subtitler
+cd drama_subtitler
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\setup-windows.ps1
+```
+
+推荐先装好系统工具：
+
+```powershell
+winget install Python.Python.3.12
+winget install Git.Git
+winget install Gyan.FFmpeg
+winget install Ollama.Ollama
+```
+
+如果你要在 Windows/NVIDIA 机器上本机跑转录，确认 NVIDIA 驱动可用，并优先使用：
+
+```powershell
+WHISPER_BACKEND=faster-whisper
+WHISPER_DEVICE=auto
+WHISPER_COMPUTE_TYPE=auto
+```
+
+`faster-whisper` 第一次运行会下载模型到 Hugging Face cache。`large-v3` 约 3GB；想先试通流程可以用 `small` 或 `medium`。
+
+如果本机 GPU 转录报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装 CUDA 12/cuDNN runtime，或临时改用 `WHISPER_DEVICE=cpu` / `WHISPER_BACKEND=openai` 跑通流程。
+
+Windows 自检：
+
+```powershell
+.\scripts\check-windows.ps1
+```
+
 系统依赖：
 
 - `ffmpeg` 必须在 `PATH` 中（两个 Whisper 后端都需要）。
 - 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`（或设置 `WHISPER_CPP_MODEL_PATH`）。
-- 使用 `ollama` 时：需要运行中的 Ollama 守护进程（默认 `http://127.0.0.1:11434`）。
+- 使用 `ollama` 时：需要运行中的 Ollama 守护进程（默认 `http://127.0.0.1:11434`，或由 `GPU_BASE_URL` 派生为 `<GPU_BASE_URL>:11434`）。
 - 使用 `openrouter` 或 `deepseek` 时：在 `.env` 中填入对应的 API Key。
 
 复制 `.env.example` 为 `.env` 并按需编辑。
@@ -60,7 +101,60 @@ python subtitle_pipeline.py episode.mkv --target-language en
 
 # 调试时实时查看模型流式输出
 python subtitle_pipeline.py episode.mkv --show-translation-stream
+
+# 使用局域网 Windows/NVIDIA 机器转录，且用同一台机器的 Ollama 翻译
+python subtitle_pipeline.py episode.mkv \
+  --whisper-backend remote-faster-whisper \
+  --translation-backend ollama \
+  --gpu-base-url http://192.168.1.42
 ```
+
+Windows PowerShell 示例：
+
+```powershell
+.\.venv\Scripts\python.exe .\subtitle_pipeline.py "D:\Videos\episode01.mkv" `
+  --whisper-backend faster-whisper `
+  --whisper-model large-v3 `
+  --translation-backend ollama `
+  --translation-model qwen2.5:14b `
+  --target-language zh
+```
+
+## 远程 GPU 机器设置
+
+`contrib/` 里包含独立运行所需的辅助脚本：
+
+```bash
+contrib/whisper-server.py              # 在 GPU 机器上运行的 faster-whisper HTTP 服务
+contrib/check-gpu-services.sh          # 在本机检查 Whisper :5051 和 Ollama :11434
+contrib/start-drama-subtitler-gpu.ps1  # Windows PowerShell 启动/检查脚本
+```
+
+Windows GPU 机器上的常见流程：
+
+```powershell
+py -3.12 -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install faster-whisper flask
+.\contrib\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
+```
+
+如果是通过 pip 安装包，也可以直接运行：
+
+```powershell
+drama-subtitler-whisper-server --host 0.0.0.0 --port 5051 --model large-v3
+```
+
+然后在运行 `drama_subtitler` 的机器上设置：
+
+```bash
+GPU_BASE_URL=http://192.168.1.42
+WHISPER_BACKEND=remote-faster-whisper
+TRANSLATION_BACKEND=ollama
+TRANSLATION_MODEL=qwen2.5:14b
+```
+
+也可以在 Web UI 里为单个任务选择 “Remote GPU faster-whisper”、填写 `GPU_BASE_URL`，并把翻译后端切到 Ollama。
 
 ## Web UI
 
@@ -69,6 +163,12 @@ python run.py --port 5050
 ```
 
 打开 http://localhost:5050。界面会列出 `MEDIA_DIR` 下的媒体文件，支持上传和实时进度查看。
+
+Windows:
+
+```powershell
+.\scripts\run-web-windows.ps1 -Browser -MediaDir "D:\Videos"
+```
 
 ## 项目结构
 
@@ -85,6 +185,8 @@ drama_subtitler/
 │   │   └── cost_estimator.py      # 费用估算
 │   ├── templates/index.html
 │   └── static/{css,js}/...
+├── contrib/                     # 远程 GPU Whisper/Ollama helper
+├── scripts/                     # Windows setup/run/check helper
 ├── tests/                      # 单元测试
 └── media/                      # 默认 MEDIA_DIR（按需创建）
 ```

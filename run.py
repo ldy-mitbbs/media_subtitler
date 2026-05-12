@@ -4,6 +4,7 @@
 """Flask launcher for drama_subtitler."""
 
 import argparse
+from pathlib import Path
 import sys
 import threading
 import webbrowser
@@ -14,13 +15,16 @@ except ImportError:
     load_dotenv = None
 
 if load_dotenv is not None:
-    load_dotenv(dotenv_path=".env", override=False)
-    load_dotenv(dotenv_path=".env.local", override=False)
+    ROOT = Path(__file__).resolve().parent
+    load_dotenv(dotenv_path=ROOT / ".env", override=False)
+    load_dotenv(dotenv_path=ROOT / ".env.local", override=False)
 
 if sys.platform == "win32":
-    import codecs
-    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
-    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from app import create_app
 

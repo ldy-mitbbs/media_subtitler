@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
   "requests>=2.28",
   "faster-whisper>=1.1",
+  "flask>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,7 @@ dev = [
 
 [project.scripts]
 drama-subtitler-models = "drama_subtitler.models:main"
+drama-subtitler-whisper-server = "drama_subtitler.remote_whisper_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

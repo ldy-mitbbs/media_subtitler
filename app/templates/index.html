@@ -56,6 +56,27 @@
     </div>
 
     <div class="form-row">
+      <label for="whisper-backend">Whisper backend</label>
+      <select id="whisper-backend">
+        <option value="">Use default</option>
+        <option value="auto">Auto</option>
+        <option value="remote-faster-whisper">Remote GPU faster-whisper</option>
+        <option value="faster-whisper">Local faster-whisper</option>
+        <option value="whispercpp">Local whisper.cpp</option>
+        <option value="openai">OpenAI Whisper API</option>
+      </select>
+    </div>
+
+    <div class="form-row" id="gpu-base-row">
+      <label for="gpu-base-url">
+        Remote GPU base URL
+        <span class="hint">Shared by remote Whisper (:5051) and Ollama (:11434)</span>
+      </label>
+      <input id="gpu-base-url" type="text" placeholder="http://192.168.1.42">
+      <div class="hint" id="gpu-url-hint"></div>
+    </div>
+
+    <div class="form-row">
       <label for="whisper-model">
         Whisper model
         <span class="hint" id="whisper-defaults"></span>
@@ -70,6 +91,16 @@
         <option value="large-v3">
         <option value="large-v3-turbo">
       </datalist>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-backend">Translation backend</label>
+      <select id="translation-backend">
+        <option value="">Use default</option>
+        <option value="ollama">Ollama (local or remote GPU)</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="deepseek">DeepSeek</option>
+      </select>
     </div>
 
     <div class="form-row">

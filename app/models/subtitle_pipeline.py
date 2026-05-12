@@ -247,6 +247,11 @@ class SubtitlePipeline:
         self.whisper_cpp_command = config.get("WHISPER_CPP_COMMAND", "whisper-cli")
         self.whisper_cpp_model_path = config.get("WHISPER_CPP_MODEL_PATH", "")
         self.whisper_cpp_threads = int(config.get("WHISPER_CPP_THREADS", 0) or 0)
+        self.gpu_base_url = str(config.get("GPU_BASE_URL", "") or "").rstrip("/").rstrip(":")
+        self.remote_whisper_base_url = (
+            str(config.get("REMOTE_WHISPER_BASE_URL", "") or "").rstrip("/")
+            or (f"{self.gpu_base_url}:5051" if self.gpu_base_url else "")
+        )
         self.openai_api_key = config.get("OPENAI_API_KEY", "") or ""
 
         self.ollama_base_url = config.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -428,6 +433,8 @@ class SubtitlePipeline:
             return "whispercpp"
         if backend in {"faster-whisper", "faster_whisper"}:
             return "faster-whisper"
+        if backend in {"remote-faster-whisper", "remote_faster_whisper"}:
+            return "remote-faster-whisper"
         if backend == "openai":
             return "openai"
         if backend == "auto":
@@ -439,7 +446,105 @@ class SubtitlePipeline:
             return self._transcribe_with_whispercpp(media_path, progress_cb, language_hint)
         if backend == "openai":
             return self._transcribe_with_openai(media_path, progress_cb, language_hint)
+        if backend == "remote-faster-whisper":
+            return self._transcribe_with_remote_faster_whisper(
+                media_path, progress_cb, language_hint
+            )
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
+
+    def _transcribe_with_remote_faster_whisper(self, media_path, progress_cb=None, language_hint=None):
+        server_url = (self.remote_whisper_base_url or "").rstrip("/")
+        if not server_url:
+            raise RuntimeError(
+                "Remote faster-whisper is selected but no server URL is set. "
+                "Set GPU_BASE_URL=http://<gpu-pc-ip> or REMOTE_WHISPER_BASE_URL=http://<host>:5051."
+            )
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to prepare audio for remote faster-whisper")
+
+        with tempfile.TemporaryDirectory(prefix="drama-subtitler-remote-") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            wav_path = temp_dir_path / "audio.wav"
+
+            if progress_cb:
+                progress_cb(5, "Extracting audio for remote faster-whisper")
+
+            cmd = [
+                ffmpeg_path,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(media_path),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                str(wav_path),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    f"ffmpeg audio extraction failed: {(completed.stderr or completed.stdout or '')[:500]}"
+                )
+
+            size_mb = wav_path.stat().st_size / (1024 * 1024)
+            if progress_cb:
+                progress_cb(10, f"Uploading {size_mb:.1f} MB audio to {server_url}")
+
+            data = {}
+            if language_hint:
+                data["language"] = language_hint
+            with open(wav_path, "rb") as f:
+                resp = requests.post(
+                    f"{server_url}/transcribe",
+                    data=data,
+                    files={"audio": (wav_path.name, f, "audio/wav")},
+                    timeout=900,
+                )
+            if resp.status_code != 200:
+                try:
+                    msg = resp.json().get("error", resp.text)
+                except Exception:
+                    msg = resp.text
+                raise RuntimeError(
+                    f"Remote faster-whisper error ({resp.status_code}): {msg[:500]}"
+                )
+
+        payload = resp.json()
+        segments = []
+        for seg in payload.get("segments", []):
+            text = str(seg.get("text", "")).strip()
+            if not text:
+                continue
+            segments.append(
+                {
+                    "start": float(seg.get("start", 0)),
+                    "end": float(seg.get("end", 0)),
+                    "text": text,
+                }
+            )
+            if progress_cb:
+                progress = min(55, 10 + int(len(segments) / 200 * 45))
+                progress_cb(progress, f"Remote transcribing ({len(segments)} segments)")
+
+        source_language = payload.get("language", language_hint or "unknown")
+        segments = self._repair_mojibake_segments(segments)
+        segments = _dedupe_repeated_segments(segments)
+        if progress_cb:
+            elapsed = payload.get("elapsed_seconds")
+            progress_cb(
+                55,
+                f"Remote transcription complete ({len(segments)} segments"
+                f"{', ' + str(elapsed) + 's' if elapsed else ''})",
+            )
+        return segments, source_language
 
     def _transcribe_with_faster_whisper(self, media_path, progress_cb=None, language_hint=None):
         if WhisperModel is None:

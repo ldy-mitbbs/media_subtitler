@@ -191,11 +191,14 @@ def get_config():
                 "model": cfg.get("WHISPER_MODEL"),
                 "device": cfg.get("WHISPER_DEVICE"),
                 "compute_type": cfg.get("WHISPER_COMPUTE_TYPE"),
+                "remote_base_url": cfg.get("REMOTE_WHISPER_BASE_URL"),
             },
             "translation": {
                 "backend": cfg.get("TRANSLATION_BACKEND"),
                 "model": cfg.get("TRANSLATION_MODEL"),
+                "ollama_base_url": cfg.get("OLLAMA_BASE_URL"),
             },
+            "gpu_base_url": cfg.get("GPU_BASE_URL"),
             "target_language": cfg.get("TARGET_LANGUAGE"),
         }
     )
@@ -391,7 +394,10 @@ def create_job():
     source_language = (request.form.get("source_language") or "").strip().lower() or None
     target_language = (request.form.get("target_language") or "").strip().lower() or None
     whisper_model = (request.form.get("whisper_model") or "").strip() or None
+    whisper_backend = (request.form.get("whisper_backend") or "").strip().lower() or None
+    gpu_base_url = (request.form.get("gpu_base_url") or "").strip().rstrip("/").rstrip(":") or None
     translation_model = (request.form.get("translation_model") or "").strip() or None
+    translation_backend = (request.form.get("translation_backend") or "").strip().lower() or None
     chunk_size_raw = (request.form.get("translation_chunk_size") or "").strip()
     try:
         user_chunk_size = int(chunk_size_raw) if chunk_size_raw else None
@@ -449,10 +455,15 @@ def create_job():
         source_language_hint=source_language,
         target_language=target_language,
         overrides={
+            "WHISPER_BACKEND": whisper_backend,
             "WHISPER_MODEL": whisper_model,
+            "GPU_BASE_URL": gpu_base_url,
+            "REMOTE_WHISPER_BASE_URL": f"{gpu_base_url}:5051" if gpu_base_url else None,
+            "OLLAMA_BASE_URL": f"{gpu_base_url}:11434" if gpu_base_url else None,
+            "TRANSLATION_BACKEND": translation_backend,
             "TRANSLATION_MODEL": translation_model,
             "TRANSLATION_CHUNK_SIZE": user_chunk_size if user_chunk_size else _adaptive_chunk_size(
-                current_app.config.get("TRANSLATION_BACKEND"),
+                translation_backend or current_app.config.get("TRANSLATION_BACKEND"),
                 translation_model or current_app.config.get("TRANSLATION_MODEL"),
             ),
         },

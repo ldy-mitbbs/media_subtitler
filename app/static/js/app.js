@@ -6,7 +6,11 @@
   const startUploadBtn = document.getElementById('start-upload');
   const sourceLangSelect = document.getElementById('source-language');
   const targetLangSelect = document.getElementById('target-language');
+  const whisperBackendSelect = document.getElementById('whisper-backend');
   const whisperModelInput = document.getElementById('whisper-model');
+  const gpuBaseUrlInput = document.getElementById('gpu-base-url');
+  const gpuUrlHintEl = document.getElementById('gpu-url-hint');
+  const translationBackendSelect = document.getElementById('translation-backend');
   const translationModelInput = document.getElementById('translation-model');
   const whisperDefaultsEl = document.getElementById('whisper-defaults');
   const translationDefaultsEl = document.getElementById('translation-defaults');
@@ -40,6 +44,9 @@
       cachedConfig = cfg;
       const w = cfg.whisper || {};
       const t = cfg.translation || {};
+      if (whisperBackendSelect) whisperBackendSelect.value = '';
+      if (translationBackendSelect) translationBackendSelect.value = '';
+      if (gpuBaseUrlInput) gpuBaseUrlInput.value = cfg.gpu_base_url || '';
       if (whisperDefaultsEl) {
         whisperDefaultsEl.textContent =
           `(default: ${w.model || '?'} via ${w.backend || '?'})`;
@@ -54,6 +61,7 @@
       if (translationModelInput) {
         translationModelInput.placeholder = `(use default: ${t.model || ''})`;
       }
+      updateGpuHint();
       updateAllForModel();
     } catch (err) {
       // non-fatal
@@ -231,7 +239,16 @@
   }
 
   function activeTranslationBackend() {
+    if (translationBackendSelect && translationBackendSelect.value) {
+      return translationBackendSelect.value;
+    }
     return (cachedConfig && cachedConfig.translation && cachedConfig.translation.backend) || '';
+  }
+
+  function updateGpuHint() {
+    if (!gpuUrlHintEl || !gpuBaseUrlInput) return;
+    const base = gpuBaseUrlInput.value.trim().replace(/\/+$/, '').replace(/:+$/, '');
+    gpuUrlHintEl.textContent = base ? `Whisper: ${base}:5051 · Ollama: ${base}:11434` : '';
   }
 
   function computeAdaptiveChunkSize() {
@@ -308,7 +325,9 @@
     }
     const params = new URLSearchParams({ selected_file: selected });
     const model = activeTranslationModel();
+    const backend = activeTranslationBackend();
     if (model) params.set('translation_model', model);
+    if (backend) params.set('translation_backend', backend);
 
     const seq = ++estimateSeq;
     estimateHintEl.textContent = 'Estimating…';
@@ -350,8 +369,17 @@
   }
 
   function appendModelOverrides(fd) {
+    if (whisperBackendSelect && whisperBackendSelect.value) {
+      fd.append('whisper_backend', whisperBackendSelect.value);
+    }
     if (whisperModelInput && whisperModelInput.value.trim()) {
       fd.append('whisper_model', whisperModelInput.value.trim());
+    }
+    if (gpuBaseUrlInput && gpuBaseUrlInput.value.trim()) {
+      fd.append('gpu_base_url', gpuBaseUrlInput.value.trim());
+    }
+    if (translationBackendSelect && translationBackendSelect.value) {
+      fd.append('translation_backend', translationBackendSelect.value);
     }
     if (translationModelInput && translationModelInput.value.trim()) {
       fd.append('translation_model', translationModelInput.value.trim());
@@ -553,6 +581,12 @@
           Target lang
           <input type="text" class="job-target" value="${currentTarget}" size="6">
         </label>
+        <select class="job-backend">
+          <option value="">Default backend</option>
+          <option value="ollama">Ollama</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
         <input type="text" class="job-model" list="translation-model-list"
                placeholder="(default: ${defaultTranslationModel})">
         <label class="inline">
@@ -566,6 +600,7 @@
     actions.appendChild(panel);
 
     const modelInput = panel.querySelector('.job-model');
+    const backendInput = panel.querySelector('.job-backend');
     const targetInput = panel.querySelector('.job-target');
     const chunkInput = panel.querySelector('.job-chunk');
     const pricingEl = panel.querySelector('.job-pricing');
@@ -576,7 +611,7 @@
 
     function autoChunkForJob() {
       if (jobChunkUserOverride) return;
-      const backend = activeTranslationBackend().toLowerCase();
+      const backend = (backendInput.value || activeTranslationBackend()).toLowerCase();
       const model = (modelInput.value.trim() || defaultTranslationModel || '').toLowerCase();
       // Reuse the global computeAdaptiveChunkSize logic by temporarily mirroring
       // the model selection. Compute inline:
@@ -600,7 +635,19 @@
     }
 
     function updatePricingForJob() {
+      const backend = (backendInput.value || activeTranslationBackend() || '').toLowerCase();
       const model = modelInput.value.trim() || defaultTranslationModel;
+      if (backend === 'deepseek' && model) {
+        const ds = DEEPSEEK_PRICING[model];
+        pricingEl.textContent = ds
+          ? `DeepSeek: input ${fmtPricePerMillion(ds.prompt)} / output ${fmtPricePerMillion(ds.completion)} per 1M tokens`
+          : `(no DeepSeek pricing for ${model})`;
+        return;
+      }
+      if (backend !== 'openrouter') {
+        pricingEl.textContent = '';
+        return;
+      }
       if (!cachedPricing || !model) {
         pricingEl.textContent = '';
         return;
@@ -621,6 +668,7 @@
       estimateEl.textContent = 'Estimating…';
       const params = new URLSearchParams({ job_id: status.job_id });
       if (model) params.set('translation_model', model);
+      if (backendInput.value) params.set('translation_backend', backendInput.value);
       try {
         const res = await fetch(`/api/estimate?${params.toString()}`);
         const data = await res.json();
@@ -651,6 +699,11 @@
       autoChunkForJob();
       refreshJobEstimate();
     });
+    backendInput.addEventListener('change', () => {
+      updatePricingForJob();
+      autoChunkForJob();
+      refreshJobEstimate();
+    });
 
     translateBtn.addEventListener('click', async () => {
       if (translateBtn.disabled) return;
@@ -660,9 +713,11 @@
       try {
         const fd = new FormData();
         const model = modelInput.value.trim();
+        const backend = backendInput.value.trim();
         const target = targetInput.value.trim();
         const chunk = chunkInput.value.trim();
         if (model) fd.append('translation_model', model);
+        if (backend) fd.append('translation_backend', backend);
         if (target) fd.append('target_language', target);
         if (chunk) fd.append('translation_chunk_size', chunk);
         const res = await fetch(`/api/jobs/${status.job_id}/translate`, {
@@ -786,6 +841,15 @@
       updateAllForModel();
       refreshEstimate();
     });
+  }
+  if (translationBackendSelect) {
+    translationBackendSelect.addEventListener('change', () => {
+      updateAllForModel();
+      refreshEstimate();
+    });
+  }
+  if (gpuBaseUrlInput) {
+    gpuBaseUrlInput.addEventListener('input', updateGpuHint);
   }
   if (mediaSelect) {
     mediaSelect.addEventListener('change', refreshEstimate);

@@ -187,6 +187,48 @@ def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
     assert Path(result["original_srt"]).exists()
 
 
+def test_remote_faster_whisper_backend_posts_audio_and_writes_srt(tmp_path, mocker):
+    media_path = tmp_path / "ep01.mp4"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline(
+        WHISPER_BACKEND="remote-faster-whisper",
+        REMOTE_WHISPER_BASE_URL="http://gpu.example:5051",
+    )
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        Path(cmd[-1]).write_bytes(b"wav")
+        return mocker.Mock(returncode=0, stderr="", stdout="")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "language": "ko",
+                "elapsed_seconds": 1.2,
+                "segments": [{"start": 0.0, "end": 1.0, "text": "안녕"}],
+            }
+
+    post_mock = mocker.patch("requests.post", return_value=FakeResponse())
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 1.0, "text": "안녕\n你好"}],
+    )
+
+    result = pipeline.process(media_path)
+
+    assert result["source_language"] == "ko"
+    assert result["whisper_backend"] == "remote-faster-whisper"
+    assert Path(result["original_srt"]).read_text(encoding="utf-8").count("안녕") == 1
+    assert post_mock.call_args.args[0] == "http://gpu.example:5051/transcribe"
+
+
 def test_start_translation_resumes_with_overrides(tmp_path, mocker):
     from app.models.subtitle_pipeline import SubtitleJobManager
 
