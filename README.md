@@ -1,6 +1,6 @@
 # drama_subtitler
 
-用 Whisper 转录视频对白，再用 LLM 翻译成双语字幕（原文 + 译文）。
+用 Whisper 将视频对白转成文字，再用 LLM 翻译成双语字幕（原文 + 译文）。
 
 你可以使用任意 Whisper 支持的源语言和任意目标语言，但本项目**开发并实测的主要场景**是：
 - 源语言：**日语**（`ja`）、**韩语**（`ko`）
@@ -10,15 +10,15 @@
 
 ## 功能
 
-- **Whisper 转录**：支持 `faster-whisper`、远程 GPU `faster-whisper`、`whisper.cpp`（Apple Silicon 上自动选用后者）和 OpenAI Whisper API。
+- **Whisper 语音转文字**：支持 `faster-whisper`、远程 GPU `faster-whisper`、`whisper.cpp`（Apple Silicon 上自动选用后者）和 OpenAI Whisper API。
 - **自动语言识别**：支持 Whisper 能识别的任意源语言。
 - **多翻译后端**：
   - `ollama` — 本地 `/api/chat` 端点。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
-- **远程 GPU 支持**：可把 Whisper 转录和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写 SRT。
+- **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写 SRT。
 - **输出**：
-  - `<media>.orig.srt` — 源语言转录字幕。
+  - `<media>.orig.srt` — 源语言字幕。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
@@ -54,7 +54,7 @@ winget install Gyan.FFmpeg
 winget install Ollama.Ollama
 ```
 
-如果你要在 Windows/NVIDIA 机器上本机跑转录，确认 NVIDIA 驱动可用，并优先使用：
+如果你要在 Windows/NVIDIA 机器上本机跑语音转文字，确认 NVIDIA 驱动可用，并优先使用：
 
 ```powershell
 WHISPER_BACKEND=faster-whisper
@@ -64,7 +64,7 @@ WHISPER_COMPUTE_TYPE=auto
 
 `faster-whisper` 第一次运行会下载模型到 Hugging Face cache。`large-v3` 约 3GB；想先试通流程可以用 `small` 或 `medium`。
 
-如果本机 GPU 转录报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装 CUDA 12/cuDNN runtime，或临时改用 `WHISPER_DEVICE=cpu` / `WHISPER_BACKEND=openai` 跑通流程。
+如果本机 GPU 语音转文字报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装运行时。
 
 Windows 自检：
 
@@ -84,13 +84,13 @@ Windows 自检：
 ## 命令行用法
 
 ```bash
-# 转录 + 翻译（自动识别源语言）
+# 语音转文字 + 翻译（自动识别源语言）
 python subtitle_pipeline.py path/to/episode.mkv
 
 # 相对 MEDIA_DIR 解析文件路径
 python subtitle_pipeline.py episode.mkv
 
-# 复用已有转录重新翻译
+# 复用已有转文字结果重新翻译
 python subtitle_pipeline.py episode.mkv --skip-transcription
 
 # 强制指定源语言
@@ -102,7 +102,7 @@ python subtitle_pipeline.py episode.mkv --target-language en
 # 调试时实时查看模型流式输出
 python subtitle_pipeline.py episode.mkv --show-translation-stream
 
-# 使用局域网 Windows/NVIDIA 机器转录，且用同一台机器的 Ollama 翻译
+# 使用局域网 Windows/NVIDIA 机器转文字，且用同一台机器的 Ollama 翻译
 python subtitle_pipeline.py episode.mkv \
   --whisper-backend remote-faster-whisper \
   --translation-backend ollama \
@@ -154,7 +154,7 @@ TRANSLATION_BACKEND=ollama
 TRANSLATION_MODEL=qwen2.5:14b
 ```
 
-也可以在 Web UI 里为单个任务选择 “Remote GPU faster-whisper”、填写 `GPU_BASE_URL`，并把翻译后端切到 Ollama。
+也可以在 Web UI 里为单个任务选择 "Remote GPU faster-whisper"、填写 `GPU_BASE_URL`，并把翻译后端切到 Ollama。
 
 ## Web UI
 
@@ -181,7 +181,7 @@ drama_subtitler/
 │   ├── __init__.py             # Flask create_app 工厂
 │   ├── routes.py               # REST API 与前端路由
 │   ├── models/
-│   │   ├── subtitle_pipeline.py   # 核心引擎：转录 + 翻译
+│   │   ├── subtitle_pipeline.py   # 核心引擎：语音转文字 + 翻译
 │   │   └── cost_estimator.py      # 费用估算
 │   ├── templates/index.html
 │   └── static/{css,js}/...
@@ -197,7 +197,9 @@ drama_subtitler/
 
 ## 法律声明 / 免责声明
 
-`drama_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他版权保护技术。你有责任确保你处理的媒体符合所在司法管辖区的版权法和许可协议。完整声明请见 [DISCLAIMER.md](DISCLAIMER.md)。
+`drama_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他技术保护措施。
+
+你在使用本工具时完全对自己的行为负责。
 
 ## 开源许可
 
