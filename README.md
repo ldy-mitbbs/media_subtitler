@@ -130,11 +130,11 @@ contrib/check-gpu-services.sh          # 在本机检查 Whisper :5051 和 Ollam
 contrib/start-drama-subtitler-gpu.ps1  # Windows PowerShell 启动/检查脚本
 ```
 
-Windows GPU 机器上的常见流程：
+Windows GPU 机器上的常见流程。如果已经在仓库根目录运行过 `.\scripts\setup-windows.ps1`，可以跳过创建虚拟环境和安装依赖，直接运行 `.\contrib\start-drama-subtitler-gpu.ps1`。GPU helper 会优先使用 `.venv`，也兼容旧的 `venv` 目录。
 
 ```powershell
-py -3.12 -m venv venv
-.\venv\Scripts\Activate.ps1
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install faster-whisper flask
 .\contrib\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
 ```

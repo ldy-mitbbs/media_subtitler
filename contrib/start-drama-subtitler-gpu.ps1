@@ -4,8 +4,15 @@ Start and check the Windows GPU services used by drama_subtitler.
 Copy this file and contrib/whisper-server.py to the Windows PC, typically:
   C:\tools\drama-subtitler-whisper\
 
-Common use:
+Common use from a full checkout:
+  cd C:\tools\drama_subtitler
+  .\contrib\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
+
+Common use when copied with whisper-server.py to a standalone folder:
   cd C:\tools\drama-subtitler-whisper
+  py -3.12 -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install faster-whisper flask
   .\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
 
 Health check only:
@@ -61,16 +68,39 @@ function Ensure-FirewallRule($Name, $Port) {
   }
 }
 
+function Get-LanIpHint {
+  try {
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 |
+      Where-Object {
+        $_.IPAddress -notlike "127.*" -and
+        $_.IPAddress -notlike "169.254.*" -and
+        $_.PrefixOrigin -ne "WellKnown"
+      } |
+      Select-Object -First 1 -ExpandProperty IPAddress)
+    if ($ip) {
+      return $ip
+    }
+  } catch {
+    Write-Warning "Could not query LAN IP with Get-NetIPAddress. Use ipconfig to find this PC's IPv4 address."
+  }
+  return "<this-pc-ip>"
+}
+
 $WhisperDir = (Resolve-Path $WhisperDir).Path
-$Python = Join-Path $WhisperDir "venv\Scripts\python.exe"
+$VenvSearchDirs = @($WhisperDir)
+if ((Split-Path $WhisperDir -Leaf) -eq "contrib") {
+  $VenvSearchDirs += (Split-Path $WhisperDir -Parent)
+}
+$VenvPythonCandidates = foreach ($Dir in $VenvSearchDirs) {
+  Join-Path $Dir ".venv\Scripts\python.exe"
+  Join-Path $Dir "venv\Scripts\python.exe"
+}
+$Python = $VenvPythonCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $Python) {
+  $Python = $VenvPythonCandidates[0]
+}
 $Server = Join-Path $WhisperDir "whisper-server.py"
-$LanIp = (Get-NetIPAddress -AddressFamily IPv4 |
-  Where-Object {
-    $_.IPAddress -notlike "127.*" -and
-    $_.IPAddress -notlike "169.254.*" -and
-    $_.PrefixOrigin -ne "WellKnown"
-  } |
-  Select-Object -First 1 -ExpandProperty IPAddress)
+$LanIp = Get-LanIpHint
 
 Write-Host "drama_subtitler GPU helper"
 Write-Host "Whisper dir: $WhisperDir"
@@ -135,7 +165,7 @@ if ($HealthOnly) {
 if (-not $SkipWhisper) {
   Write-Step "Starting Whisper server"
   if (-not (Test-Path $Python)) {
-    throw "Missing venv Python: $Python. Create it with: py -3.12 -m venv venv; .\venv\Scripts\Activate.ps1; pip install faster-whisper flask"
+    throw "Missing virtualenv Python. Expected .venv\Scripts\python.exe or venv\Scripts\python.exe under: $($VenvSearchDirs -join ', '). Create it with: py -3.12 -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install faster-whisper flask"
   }
   if (-not (Test-Path $Server)) {
     throw "Missing whisper server: $Server"
