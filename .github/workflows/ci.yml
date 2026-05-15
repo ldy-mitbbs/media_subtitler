@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # Run integration tests on a schedule (weekly) to catch API changes.
+  schedule:
+    - cron: "0 6 * * 0"
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,webapp]"
+
+      - name: Run unit tests
+        run: pytest -v -m "not integration"
+
+  integration-ollama:
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[run-integration]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,webapp]"
+
+      - name: Setup Ollama
+        uses: ollama/setup-ollama@v1
+
+      - name: Pull test model
+        run: ollama pull qwen2.5:7b
+
+      - name: Run Ollama integration tests
+        run: pytest -v --run-integration --run-slow -m "ollama"
+        timeout-minutes: 10
+
+  integration-openrouter:
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[run-integration]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,webapp]"
+
+      - name: Run OpenRouter integration tests
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: pytest -v --run-integration -m "openrouter"
+        timeout-minutes: 10

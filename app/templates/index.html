@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>剧集字幕工具</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header>
+  <h1>剧集字幕工具</h1>
+  <p class="subtitle">
+    识别任意视频中的语音，并在任意支持的语言之间翻译字幕。
+  </p>
+</header>
+
+<main>
+  <section class="card" id="settings-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="document.getElementById('settings-details').toggleAttribute('open')">
+      <h2 style="margin:0">设置</h2>
+      <span style="color:var(--muted);font-size:0.85rem;">点击展开 / 收起</span>
+    </div>
+    <details id="settings-details" style="margin-top:12px;">
+      <summary style="display:none">设置</summary>
+      <div class="settings-section">
+        <div class="settings-group">
+          <h3>服务器与 API</h3>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-gpu-base-url">远程 GPU 服务器地址</label>
+              <input id="setting-gpu-base-url" type="text" placeholder="http://192.168.1.42">
+            </div>
+            <div class="settings-field">
+              <label for="setting-remote-whisper-url">远程 Whisper 地址</label>
+              <input id="setting-remote-whisper-url" type="text" placeholder="如空则自动从 GPU 地址推导 (:5051)">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-ollama-url">Ollama 地址</label>
+              <input id="setting-ollama-url" type="text" placeholder="如空则自动从 GPU 地址推导 (:11434)">
+            </div>
+            <div class="settings-field">
+              <label for="setting-openrouter-url">OpenRouter API 地址</label>
+              <input id="setting-openrouter-url" type="text" placeholder="https://openrouter.ai/api/v1">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-deepseek-url">DeepSeek API 地址</label>
+              <input id="setting-deepseek-url" type="text" placeholder="https://api.deepseek.com">
+            </div>
+            <div class="settings-field">
+              <label for="setting-openrouter-referer">OpenRouter Referer</label>
+              <input id="setting-openrouter-referer" type="text" placeholder="">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-openrouter-app-title">OpenRouter App Title</label>
+              <input id="setting-openrouter-app-title" type="text" placeholder="drama_subtitler">
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>API 密钥</h3>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-openrouter-api-key">OpenRouter API Key</label>
+              <input id="setting-openrouter-api-key" type="password" placeholder="sk-or-...">
+            </div>
+            <div class="settings-field">
+              <label for="setting-deepseek-api-key">DeepSeek API Key</label>
+              <input id="setting-deepseek-api-key" type="password" placeholder="sk-...">
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>默认参数</h3>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-whisper-backend">默认 Whisper 后端</label>
+              <select id="setting-whisper-backend">
+                <option value="">使用默认</option>
+                <option value="auto">自动</option>
+                <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
+                <option value="faster-whisper">本地 faster-whisper</option>
+                <option value="whispercpp">本地 whisper.cpp</option>
+                <option value="openai">OpenAI Whisper API</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label for="setting-whisper-model">默认 Whisper 模型</label>
+              <input id="setting-whisper-model" type="text" placeholder="large-v3">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-translation-backend">默认翻译后端</label>
+              <select id="setting-translation-backend">
+                <option value="">使用默认</option>
+                <option value="ollama">Ollama</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+            </div>
+            <div class="settings-field">
+              <label for="setting-translation-model">默认翻译模型</label>
+              <input id="setting-translation-model" type="text" placeholder="deepseek-v4-flash">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-target-language">默认目标语言</label>
+              <select id="setting-target-language">
+                {% for code, name in target_language_options %}
+                <option value="{{ code }}">{{ name }} ({{ code }})</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="justify-content:flex-end;margin-top:4px;">
+          <button id="save-settings" type="button" class="primary">保存设置</button>
+          <span id="settings-save-status" style="color:var(--good);font-size:0.85rem;"></span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>新建任务</h2>
+
+    <div class="form-row">
+      <label for="source-language">源语言</label>
+      <select id="source-language">
+        <option value="">自动检测</option>
+        {% for code, name in language_options %}
+        <option value="{{ code }}">{{ name }} ({{ code }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>处理方式</label>
+      <div class="row">
+        <label class="inline">
+          <input type="radio" name="run-mode" value="full" checked>
+          语音识别 + 翻译
+        </label>
+        <label class="inline">
+          <input type="radio" name="run-mode" value="transcribe">
+          仅语音识别（之后选择翻译模型）
+        </label>
+        <label class="inline">
+          <input type="radio" name="run-mode" value="translate">
+          仅翻译（需要已有 .orig.srt 文件）
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="target-language">目标语言</label>
+      <select id="target-language">
+        {% for code, name in target_language_options %}
+        <option value="{{ code }}" {% if code == target_language %}selected{% endif %}>{{ name }} ({{ code }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="whisper-backend">Whisper 后端</label>
+      <select id="whisper-backend">
+        <option value="">使用默认</option>
+        <option value="auto">自动</option>
+        <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
+        <option value="faster-whisper">本地 faster-whisper</option>
+        <option value="whispercpp">本地 whisper.cpp</option>
+        <option value="openai">OpenAI Whisper API</option>
+      </select>
+    </div>
+
+    <div class="form-row" id="gpu-base-row">
+      <label for="gpu-base-url">
+        远程服务器地址
+        <span class="hint">供远程 Whisper (:5051) 和 Ollama (:11434) 共用</span>
+      </label>
+      <input id="gpu-base-url" type="text" placeholder="http://192.168.1.42">
+      <div class="hint" id="gpu-url-hint"></div>
+    </div>
+
+    <div class="form-row">
+      <label for="whisper-model">
+        Whisper 模型
+        <span class="hint" id="whisper-defaults"></span>
+      </label>
+      <input id="whisper-model" type="text" list="whisper-model-list" placeholder="（使用默认）">
+      <datalist id="whisper-model-list">
+        <option value="tiny">
+        <option value="base">
+        <option value="small">
+        <option value="medium">
+        <option value="large-v2">
+        <option value="large-v3">
+        <option value="large-v3-turbo">
+      </datalist>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-backend">翻译后端</label>
+      <select id="translation-backend">
+        <option value="">使用默认</option>
+        <option value="ollama">Ollama（本地或远程 GPU）</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="deepseek">DeepSeek</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-model">
+        翻译模型
+        <span class="hint" id="translation-defaults"></span>
+      </label>
+      <input id="translation-model" type="text" list="translation-model-list" placeholder="（使用默认）">
+      <div class="hint" id="translation-pricing"></div>
+      <details class="model-picker" id="model-picker">
+        <summary>浏览模型（排序和筛选）</summary>
+        <div class="model-picker-controls">
+          <input type="search" id="model-picker-search" placeholder="按名称筛选…">
+          <div class="model-picker-sort" role="tablist">
+            <button type="button" data-sort="newest" class="active">最新</button>
+            <button type="button" data-sort="cheapest">最便宜</button>
+            <button type="button" data-sort="alpha">A–Z</button>
+          </div>
+          <label class="model-picker-toggle">发布时间：
+            <select id="model-picker-age">
+              <option value="0">任意时间</option>
+              <option value="3">最近 3 个月</option>
+              <option value="6">最近 6 个月</option>
+              <option value="12">最近 12 个月</option>
+              <option value="24">最近 2 年</option>
+            </select>
+          </label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-free-only"> 仅免费</label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-json-only"> 仅结构化输出</label>
+        </div>
+        <div class="model-picker-list" id="model-picker-list"></div>
+      </details>
+      <datalist id="translation-model-list">
+        <!-- Populated dynamically from /api/openrouter/models. Static fallback below. -->
+        <option value="deepseek-v4-flash">deepseek-v4-flash (DeepSeek)
+        <option value="deepseek-v4-pro">deepseek-v4-pro (DeepSeek)
+        <option value="qwen2.5:14b">qwen2.5:14b (Ollama)
+        <option value="qwen2.5:32b">qwen2.5:32b (Ollama)
+        <option value="llama3.1:8b">llama3.1:8b (Ollama)
+      </datalist>
+    </div>
+
+    <div class="form-row">
+      <label for="translation-chunk-size">
+        翻译批次大小
+        <span class="hint" id="chunk-size-hint">根据模型自动调整。值越小越稳定，但更慢且费用更高。</span>
+      </label>
+      <input id="translation-chunk-size" type="number" min="1" max="50" step="1">
+    </div>
+
+    <div class="form-row">
+      <label>已有媒体文件</label>
+      <div class="row">
+        <select id="media-file"></select>
+        <button id="refresh-media" type="button">刷新</button>
+        <button id="start-existing" type="button" class="primary">运行</button>
+      </div>
+      <div class="hint" id="estimate-hint"></div>
+    </div>
+
+    <div class="form-row">
+      <label for="upload-input">上传文件</label>
+      <div class="row">
+        <input id="upload-input" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.ts,.m4v,.m4a,.mp3,.wav,.aac,.flac">
+        <button id="start-upload" type="button" class="primary">上传并运行</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>任务列表</h2>
+    <div id="jobs"></div>
+  </section>
+</main>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
