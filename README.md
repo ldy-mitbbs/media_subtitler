@@ -75,6 +75,10 @@ Windows 自检：
 系统依赖：
 
 - `ffmpeg` 必须在 `PATH` 中（两个 Whisper 后端都需要）。
+- 如果要直接复用日本电视 TS 文件里的 `[字]` 字幕，`ffmpeg` 还需要支持
+  `arib_caption` 解码。普通 Homebrew `ffmpeg` 可能没有这个解码器；macOS
+  可使用支持 `--with-libaribcaption` 的 ffmpeg 构建，或自行编译带
+  `libaribcaption` 的 ffmpeg。
 - 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`（或设置 `WHISPER_CPP_MODEL_PATH`）。
 - 使用 `ollama` 时：需要运行中的 Ollama 守护进程（默认 `http://127.0.0.1:11434`，或由 `GPU_BASE_URL` 派生为 `<GPU_BASE_URL>:11434`）。
 - 使用 `openrouter` 或 `deepseek` 时：在 `.env` 中填入对应的 API Key。
