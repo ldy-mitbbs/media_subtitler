@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.local
+media/
+/models/
+*.srt
+!tests/**/*.srt
+.DS_Store
+settings.json
+.vscode/
