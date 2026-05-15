@@ -7,6 +7,8 @@ import requests
 from app.models.subtitle_pipeline import (
     SubtitlePipeline,
     SubtitleJobManager,
+    clean_extracted_subtitle_segments,
+    clean_extracted_subtitle_text,
     _dedupe_repeated_segments,
     _is_fatal_http_error,
     format_srt_timestamp,
@@ -64,6 +66,29 @@ class TestSRTIO:
         path = tmp_path / "empty.srt"
         path.write_text("", encoding="utf-8")
         assert read_srt(path) == []
+
+
+class TestExtractedSubtitleCleanup:
+    def test_clean_extracted_subtitle_text_strips_arib_markup(self):
+        text = (
+            '<font face="sans-serif" size="36">{\\an7}(安藤)ここです</font>'
+            '<font face="sans-serif" size="36">{\\an7}この部屋です</font>'
+        )
+
+        assert clean_extracted_subtitle_text(text) == "(安藤)ここです\nこの部屋です"
+
+    def test_clean_extracted_subtitle_segments_drops_empty_and_repairs_long_end_times(self):
+        segments = [
+            {"start": 2.219, "end": 4294920.0, "text": '<font size="36"></font>'},
+            {"start": 50.350, "end": 4295000.0, "text": "{\\an7}ここです"},
+            {"start": 53.353, "end": 55.853, "text": "{\\an7}先に入れ"},
+        ]
+
+        cleaned = clean_extracted_subtitle_segments(segments)
+
+        assert [segment["text"] for segment in cleaned] == ["ここです", "先に入れ"]
+        assert cleaned[0]["end"] == pytest.approx(53.352)
+        assert cleaned[1]["end"] == pytest.approx(55.853)
 
 
 # ------------------------------------------------------------------ dedupe

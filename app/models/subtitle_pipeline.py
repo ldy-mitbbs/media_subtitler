@@ -4,6 +4,7 @@ Produces bilingual SRT files: original transcript + translated line per cue.
 Prompts are tuned for natural drama dialogue rather than generic copy.
 """
 
+import html
 import json
 import os
 import re
@@ -101,6 +102,16 @@ LANGUAGE_NAMES = {
     "yue": "Cantonese",
     "zh": "Simplified Chinese",
     "zh-tw": "Traditional Chinese",
+}
+
+TEXT_SUBTITLE_CODECS = {
+    "arib_caption",
+    "ass",
+    "mov_text",
+    "ssa",
+    "subrip",
+    "text",
+    "webvtt",
 }
 
 
@@ -234,6 +245,52 @@ def read_srt(input_path):
     return segments
 
 
+def clean_extracted_subtitle_segments(segments):
+    cleaned = []
+
+    for segment in segments:
+        text = clean_extracted_subtitle_text(segment.get("text", ""))
+        if not text:
+            continue
+        cleaned.append(
+            {
+                "start": float(segment.get("start", 0)),
+                "end": float(segment.get("end", 0)),
+                "text": text,
+            }
+        )
+
+    for idx, segment in enumerate(cleaned):
+        duration = segment["end"] - segment["start"]
+        if 0 < duration <= 30:
+            continue
+
+        next_start = None
+        if idx + 1 < len(cleaned):
+            candidate = cleaned[idx + 1]["start"]
+            if candidate > segment["start"]:
+                next_start = candidate
+
+        if next_start is not None:
+            segment["end"] = max(segment["start"] + 0.5, next_start - 0.001)
+        else:
+            segment["end"] = segment["start"] + 5.0
+
+    return cleaned
+
+
+def clean_extracted_subtitle_text(text):
+    text = str(text or "")
+    text = re.sub(r"</font>\s*<font\b[^>]*>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?font\b[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\{\\[^}]+\}", "", text)
+    text = html.unescape(text)
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
 class SubtitlePipeline:
     def __init__(self, config):
         # Accept either MEDIA_DIR (drama_subtitler) or DOWNLOAD_DIR (legacy).
@@ -355,18 +412,43 @@ class SubtitlePipeline:
             if not segments:
                 raise RuntimeError(f"No subtitle segments found in: {original_srt}")
         else:
-            if progress_cb:
-                progress_cb(5, "Preparing transcription backend")
-
-            backend = self._resolve_backend()
-            segments, source_language = self._transcribe(
-                media_path, backend, progress_cb, language_hint=source_language_hint
+            segments = []
+            source_language = None
+            embedded_subtitle = self._find_embedded_subtitle_stream(
+                media_path, language_hint=source_language_hint
             )
+            if embedded_subtitle:
+                if progress_cb:
+                    label = embedded_subtitle.get("label") or "embedded subtitle"
+                    progress_cb(10, f"Found {label}; extracting subtitles")
+                segments, source_language = self._extract_embedded_subtitle(
+                    media_path,
+                    embedded_subtitle,
+                    original_srt,
+                    progress_cb=progress_cb,
+                    language_hint=source_language_hint,
+                )
+                segments = self._repair_mojibake_segments(segments)
+                segments = _dedupe_repeated_segments(segments)
+                if progress_cb:
+                    progress_cb(
+                        55,
+                        f"Using embedded subtitles ({len(segments)} segments)",
+                    )
 
             if not segments:
-                raise RuntimeError("No speech segments detected")
+                if progress_cb:
+                    progress_cb(5, "Preparing transcription backend")
 
-            write_srt(segments, original_srt)
+                backend = self._resolve_backend()
+                segments, source_language = self._transcribe(
+                    media_path, backend, progress_cb, language_hint=source_language_hint
+                )
+
+                if not segments:
+                    raise RuntimeError("No speech segments detected")
+
+                write_srt(segments, original_srt)
 
         normalized_lang = (source_language or "unknown").strip().lower()
 
@@ -451,6 +533,168 @@ class SubtitlePipeline:
                 media_path, progress_cb, language_hint
             )
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
+
+    def _find_embedded_subtitle_stream(self, media_path, language_hint=None):
+        ffprobe_path = shutil.which("ffprobe")
+        if not ffprobe_path:
+            return None
+
+        cmd = [
+            ffprobe_path,
+            "-v",
+            "error",
+            "-select_streams",
+            "s",
+            "-show_entries",
+            "stream=index,codec_name:stream_tags=language,title",
+            "-of",
+            "json",
+            str(media_path),
+        ]
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            return None
+
+        try:
+            payload = json.loads(completed.stdout or "{}")
+        except json.JSONDecodeError:
+            return None
+
+        streams = []
+        for stream in payload.get("streams", []):
+            codec_name = str(stream.get("codec_name") or "").strip().lower()
+            if codec_name not in TEXT_SUBTITLE_CODECS:
+                continue
+            tags = stream.get("tags") or {}
+            language = str(tags.get("language") or "").strip().lower()
+            title = str(tags.get("title") or "").strip()
+            index = stream.get("index")
+            if index is None:
+                continue
+            streams.append(
+                {
+                    "index": int(index),
+                    "codec": codec_name,
+                    "language": language,
+                    "title": title,
+                    "label": self._format_subtitle_stream_label(index, codec_name, language, title),
+                }
+            )
+
+        if not streams:
+            return None
+
+        hint = (language_hint or "").strip().lower()
+        if hint:
+            hinted = [
+                stream
+                for stream in streams
+                if stream.get("language") == hint
+                or stream.get("language", "").split("-", 1)[0] == hint.split("-", 1)[0]
+            ]
+            if hinted:
+                return hinted[0]
+
+        non_target = [
+            stream
+            for stream in streams
+            if stream.get("language") and stream.get("language") != self.target_language
+        ]
+        return (non_target or streams)[0]
+
+    @staticmethod
+    def _format_subtitle_stream_label(index, codec_name, language, title):
+        parts = [f"subtitle stream #{index}", codec_name]
+        if language:
+            parts.append(language)
+        if title:
+            parts.append(title)
+        return " / ".join(parts)
+
+    def _extract_embedded_subtitle(
+        self,
+        media_path,
+        subtitle_stream,
+        output_srt,
+        progress_cb=None,
+        language_hint=None,
+    ):
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to extract embedded subtitles")
+
+        codec_name = str(subtitle_stream.get("codec") or "").strip().lower()
+        if codec_name == "arib_caption" and not self._ffmpeg_has_arib_caption_decoder():
+            raise RuntimeError(
+                "Embedded ARIB subtitles were found, but this ffmpeg build cannot decode "
+                "arib_caption. Install an ffmpeg build with arib_caption/libaribcaption "
+                "support, then run translation again."
+            )
+
+        output_srt = Path(output_srt)
+        temp_srt = output_srt.with_suffix(".embedded.tmp.srt")
+        try:
+            if progress_cb:
+                progress_cb(15, "Extracting embedded subtitles")
+            cmd = [
+                ffmpeg_path,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(media_path),
+                "-map",
+                f"0:{subtitle_stream['index']}",
+                "-c:s",
+                "srt",
+                str(temp_srt),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if completed.returncode != 0:
+                msg = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()
+                raise RuntimeError(f"ffmpeg subtitle extraction failed: {msg[:500]}")
+
+            segments = clean_extracted_subtitle_segments(read_srt(temp_srt))
+            if not segments:
+                raise RuntimeError("extracted subtitle track was empty")
+
+            write_srt(segments, output_srt)
+            source_language = (
+                language_hint
+                or subtitle_stream.get("language")
+                or ("ja" if codec_name == "arib_caption" else "")
+                or "unknown"
+            )
+            return segments, source_language
+        finally:
+            if temp_srt.exists():
+                temp_srt.unlink()
+
+    @staticmethod
+    def _ffmpeg_has_decoder(codec_name):
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            return False
+
+        completed = subprocess.run(
+            [ffmpeg_path, "-hide_banner", "-decoders"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return False
+
+        pattern = re.compile(rf"^\s*\S+\s+{re.escape(codec_name)}\b", re.MULTILINE)
+        return bool(pattern.search(completed.stdout or ""))
+
+    @staticmethod
+    def _ffmpeg_has_arib_caption_decoder():
+        return (
+            SubtitlePipeline._ffmpeg_has_decoder("arib_caption")
+            or SubtitlePipeline._ffmpeg_has_decoder("libaribcaption")
+        )
 
     def _transcribe_with_remote_faster_whisper(self, media_path, progress_cb=None, language_hint=None):
         server_url = (self.remote_whisper_base_url or "").rstrip("/")
