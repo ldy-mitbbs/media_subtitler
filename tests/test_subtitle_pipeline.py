@@ -163,6 +163,168 @@ def test_process_skip_transcription_requires_existing_orig_srt(tmp_path):
         pipeline.process(media_path, skip_transcription=True)
 
 
+def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
+    media_path = tmp_path / "ep01.mkv"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline(TRANSLATION_CHUNK_SIZE=10)
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command in {"ffprobe", "ffmpeg"} else None
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        if cmd[0].endswith("ffprobe"):
+            return mocker.Mock(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "index": 2,
+                                "codec_name": "subrip",
+                                "tags": {"language": "ko", "title": "Korean"},
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+
+        Path(cmd[-1]).write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\n안녕\n\n",
+            encoding="utf-8",
+        )
+        return mocker.Mock(returncode=0, stdout="", stderr="")
+
+    mocker.patch("shutil.which", side_effect=fake_which)
+    run_mock = mocker.patch("subprocess.run", side_effect=fake_run)
+    transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 1.0, "text": "안녕\n你好"}],
+    )
+
+    result = pipeline.process(media_path)
+
+    transcribe_mock.assert_not_called()
+    assert result["source_language"] == "ko"
+    assert result["segment_count"] == 1
+    assert Path(result["original_srt"]).read_text(encoding="utf-8").count("안녕") == 1
+    ffmpeg_cmd = run_mock.call_args_list[1].args[0]
+    map_arg = ffmpeg_cmd.index("-map")
+    assert ffmpeg_cmd[map_arg:map_arg + 2] == ["-map", "0:2"]
+
+
+def test_process_stops_when_embedded_subtitle_extract_fails(tmp_path, mocker):
+    media_path = tmp_path / "ep01.mkv"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline(TRANSLATION_CHUNK_SIZE=10)
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command in {"ffprobe", "ffmpeg"} else None
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        if cmd[0].endswith("ffprobe"):
+            return mocker.Mock(
+                returncode=0,
+                stdout=json.dumps(
+                    {"streams": [{"index": 3, "codec_name": "ass", "tags": {"language": "ja"}}]}
+                ),
+                stderr="",
+            )
+        return mocker.Mock(returncode=1, stdout="", stderr="cannot convert")
+
+    mocker.patch("shutil.which", side_effect=fake_which)
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 1.0, "text": "こんにちは\n你好"}],
+    )
+
+    with pytest.raises(RuntimeError, match="ffmpeg subtitle extraction failed"):
+        pipeline.process(media_path)
+
+    transcribe_mock.assert_not_called()
+
+
+def test_arib_caption_requires_ffmpeg_decoder(tmp_path, mocker):
+    media_path = tmp_path / "ep01.ts"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline()
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command in {"ffprobe", "ffmpeg"} else None
+
+    mocker.patch("shutil.which", side_effect=fake_which)
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        if "-decoders" in cmd:
+            return mocker.Mock(returncode=0, stdout=" S..... subrip SubRip subtitle\n", stderr="")
+        return mocker.Mock(
+            returncode=0,
+            stdout=json.dumps({"streams": [{"index": 3, "codec_name": "arib_caption"}]}),
+            stderr="",
+        )
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
+
+    with pytest.raises(RuntimeError, match="cannot decode arib_caption"):
+        pipeline.process(media_path)
+
+    transcribe_mock.assert_not_called()
+
+
+def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
+    media_path = tmp_path / "ep01.ts"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline()
+
+    def fake_which(command):
+        return f"/usr/bin/{command}" if command in {"ffprobe", "ffmpeg"} else None
+
+    mocker.patch("shutil.which", side_effect=fake_which)
+
+    def fake_run(cmd, **kwargs):  # noqa: ARG001
+        if "-decoders" in cmd:
+            return mocker.Mock(
+                returncode=0,
+                stdout=" S..... libaribcaption ARIB STD-B24 caption decoder\n",
+                stderr="",
+            )
+        if cmd[0].endswith("ffprobe"):
+            return mocker.Mock(
+                returncode=0,
+                stdout=json.dumps({"streams": [{"index": 3, "codec_name": "arib_caption"}]}),
+                stderr="",
+            )
+        Path(cmd[-1]).write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n\n",
+            encoding="utf-8",
+        )
+        return mocker.Mock(returncode=0, stdout="", stderr="")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 1.0, "text": "こんにちは\n你好"}],
+    )
+
+    result = pipeline.process(media_path)
+
+    transcribe_mock.assert_not_called()
+    assert result["source_language"] == "ja"
+    assert result["segment_count"] == 1
+
+
 def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
     media_path = tmp_path / "ep01.mp4"
     media_path.write_bytes(b"fake")
