@@ -1,8 +1,15 @@
 import os
 import sys
+import tempfile
 
 # Add the project root to sys.path so `app` and `config` are importable.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+_settings_dir = tempfile.TemporaryDirectory(prefix="drama-subtitler-tests-")
+os.environ["DRAMA_SUBTITLER_SETTINGS_PATH"] = os.path.join(
+    _settings_dir.name,
+    "settings.json",
+)
 
 # Load .env / .env.local so integration tests can pick up API keys automatically.
 try:
@@ -58,3 +65,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_integration)
         if has_slow and not run_slow:
             item.add_marker(skip_slow)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _settings_dir.cleanup()

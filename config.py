@@ -9,6 +9,9 @@ IS_APPLE_SILICON = sys.platform == "darwin" and platform.machine() in ("arm64", 
 
 
 def _settings_path() -> Path:
+    override = os.environ.get("DRAMA_SUBTITLER_SETTINGS_PATH")
+    if override:
+        return Path(override).expanduser()
     return Path(__file__).resolve().parent / "settings.json"
 
 
