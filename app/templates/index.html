@@ -1,27 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Drama Subtitler</title>
+  <title>剧集字幕工具</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
 <header>
-  <h1>Drama Subtitler</h1>
+  <h1>剧集字幕工具</h1>
   <p class="subtitle">
-    Transcribe any video and translate subtitles between any supported languages.
+    转录任意视频，并在任意支持的语言之间翻译字幕。
   </p>
 </header>
 
 <main>
   <section class="card">
-    <h2>Start a job</h2>
+    <h2>新建任务</h2>
 
     <div class="form-row">
-      <label for="source-language">Source language</label>
+      <label for="source-language">源语言</label>
       <select id="source-language">
-        <option value="">Auto-detect</option>
+        <option value="">自动检测</option>
         {% for code, name in language_options %}
         <option value="{{ code }}">{{ name }} ({{ code }})</option>
         {% endfor %}
@@ -29,25 +29,25 @@
     </div>
 
     <div class="form-row">
-      <label>Run mode</label>
+      <label>运行模式</label>
       <div class="row">
         <label class="inline">
           <input type="radio" name="run-mode" value="full" checked>
-          Transcribe + translate
+          转录 + 翻译
         </label>
         <label class="inline">
           <input type="radio" name="run-mode" value="transcribe">
-          Transcribe only (pick translation model after)
+          仅转录（之后选择翻译模型）
         </label>
         <label class="inline">
           <input type="radio" name="run-mode" value="translate">
-          Translate only (requires existing .orig.srt)
+          仅翻译（需要已有 .orig.srt 文件）
         </label>
       </div>
     </div>
 
     <div class="form-row">
-      <label for="target-language">Target language</label>
+      <label for="target-language">目标语言</label>
       <select id="target-language">
         {% for code, name in language_options %}
         <option value="{{ code }}" {% if code == target_language %}selected{% endif %}>{{ name }} ({{ code }})</option>
@@ -56,21 +56,21 @@
     </div>
 
     <div class="form-row">
-      <label for="whisper-backend">Whisper backend</label>
+      <label for="whisper-backend">Whisper 引擎</label>
       <select id="whisper-backend">
-        <option value="">Use default</option>
-        <option value="auto">Auto</option>
-        <option value="remote-faster-whisper">Remote GPU faster-whisper</option>
-        <option value="faster-whisper">Local faster-whisper</option>
-        <option value="whispercpp">Local whisper.cpp</option>
+        <option value="">使用默认</option>
+        <option value="auto">自动</option>
+        <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
+        <option value="faster-whisper">本地 faster-whisper</option>
+        <option value="whispercpp">本地 whisper.cpp</option>
         <option value="openai">OpenAI Whisper API</option>
       </select>
     </div>
 
     <div class="form-row" id="gpu-base-row">
       <label for="gpu-base-url">
-        Remote GPU base URL
-        <span class="hint">Shared by remote Whisper (:5051) and Ollama (:11434)</span>
+        远程 GPU 基础地址
+        <span class="hint">供远程 Whisper (:5051) 和 Ollama (:11434) 共用</span>
       </label>
       <input id="gpu-base-url" type="text" placeholder="http://192.168.1.42">
       <div class="hint" id="gpu-url-hint"></div>
@@ -78,10 +78,10 @@
 
     <div class="form-row">
       <label for="whisper-model">
-        Whisper model
+        Whisper 模型
         <span class="hint" id="whisper-defaults"></span>
       </label>
-      <input id="whisper-model" type="text" list="whisper-model-list" placeholder="(use default)">
+      <input id="whisper-model" type="text" list="whisper-model-list" placeholder="（使用默认）">
       <datalist id="whisper-model-list">
         <option value="tiny">
         <option value="base">
@@ -94,10 +94,10 @@
     </div>
 
     <div class="form-row">
-      <label for="translation-backend">Translation backend</label>
+      <label for="translation-backend">翻译引擎</label>
       <select id="translation-backend">
-        <option value="">Use default</option>
-        <option value="ollama">Ollama (local or remote GPU)</option>
+        <option value="">使用默认</option>
+        <option value="ollama">Ollama（本地或远程 GPU）</option>
         <option value="openrouter">OpenRouter</option>
         <option value="deepseek">DeepSeek</option>
       </select>
@@ -105,31 +105,31 @@
 
     <div class="form-row">
       <label for="translation-model">
-        Translation model
+        翻译模型
         <span class="hint" id="translation-defaults"></span>
       </label>
-      <input id="translation-model" type="text" list="translation-model-list" placeholder="(use default)">
+      <input id="translation-model" type="text" list="translation-model-list" placeholder="（使用默认）">
       <div class="hint" id="translation-pricing"></div>
       <details class="model-picker" id="model-picker">
-        <summary>Browse models (sort &amp; filter)</summary>
+        <summary>浏览模型（排序和筛选）</summary>
         <div class="model-picker-controls">
-          <input type="search" id="model-picker-search" placeholder="Filter by name…">
+          <input type="search" id="model-picker-search" placeholder="按名称筛选…">
           <div class="model-picker-sort" role="tablist">
-            <button type="button" data-sort="newest" class="active">Newest</button>
-            <button type="button" data-sort="cheapest">Cheapest</button>
+            <button type="button" data-sort="newest" class="active">最新</button>
+            <button type="button" data-sort="cheapest">最便宜</button>
             <button type="button" data-sort="alpha">A–Z</button>
           </div>
-          <label class="model-picker-toggle">Released:
+          <label class="model-picker-toggle">发布时间：
             <select id="model-picker-age">
-              <option value="0">Any time</option>
-              <option value="3">Past 3 months</option>
-              <option value="6">Past 6 months</option>
-              <option value="12">Past 12 months</option>
-              <option value="24">Past 2 years</option>
+              <option value="0">任意时间</option>
+              <option value="3">最近 3 个月</option>
+              <option value="6">最近 6 个月</option>
+              <option value="12">最近 12 个月</option>
+              <option value="24">最近 2 年</option>
             </select>
           </label>
-          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-free-only"> Free only</label>
-          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-json-only"> JSON-mode only</label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-free-only"> 仅免费</label>
+          <label class="model-picker-toggle"><input type="checkbox" id="model-picker-json-only"> 仅 JSON 模式</label>
         </div>
         <div class="model-picker-list" id="model-picker-list"></div>
       </details>
@@ -145,33 +145,33 @@
 
     <div class="form-row">
       <label for="translation-chunk-size">
-        Translation chunk size
-        <span class="hint" id="chunk-size-hint">Auto-tuned based on the model. Lower = more reliable, slower &amp; pricier.</span>
+        翻译分块大小
+        <span class="hint" id="chunk-size-hint">根据模型自动调整。值越小越稳定，但更慢且费用更高。</span>
       </label>
       <input id="translation-chunk-size" type="number" min="1" max="50" step="1">
     </div>
 
     <div class="form-row">
-      <label>Existing media file</label>
+      <label>已有媒体文件</label>
       <div class="row">
         <select id="media-file"></select>
-        <button id="refresh-media" type="button">Refresh</button>
-        <button id="start-existing" type="button" class="primary">Run</button>
+        <button id="refresh-media" type="button">刷新</button>
+        <button id="start-existing" type="button" class="primary">运行</button>
       </div>
       <div class="hint" id="estimate-hint"></div>
     </div>
 
     <div class="form-row">
-      <label for="upload-input">Upload a file</label>
+      <label for="upload-input">上传文件</label>
       <div class="row">
         <input id="upload-input" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.ts,.m4v,.m4a,.mp3,.wav,.aac,.flac">
-        <button id="start-upload" type="button" class="primary">Upload &amp; run</button>
+        <button id="start-upload" type="button" class="primary">上传并运行</button>
       </div>
     </div>
   </section>
 
   <section class="card">
-    <h2>Jobs</h2>
+    <h2>任务列表</h2>
     <div id="jobs"></div>
   </section>
 </main>

@@ -49,18 +49,14 @@
       if (gpuBaseUrlInput) gpuBaseUrlInput.value = cfg.gpu_base_url || '';
       if (whisperDefaultsEl) {
         whisperDefaultsEl.textContent =
-          `(default: ${w.model || '?'} via ${w.backend || '?'})`;
-      }
+          `（默认：${w.model || '?'} 通过 ${w.backend || '?'}）`;      }
       if (translationDefaultsEl) {
         translationDefaultsEl.textContent =
-          `(default: ${t.model || '?'} via ${t.backend || '?'})`;
-      }
+          `（默认：${t.model || '?'} 通过 ${t.backend || '?'}）`;      }
       if (whisperModelInput && !whisperModelInput.placeholder.includes(w.model || '')) {
-        whisperModelInput.placeholder = `(use default: ${w.model || ''})`;
-      }
+        whisperModelInput.placeholder = `（使用默认：${w.model || ''}）`;      }
       if (translationModelInput) {
-        translationModelInput.placeholder = `(use default: ${t.model || ''})`;
-      }
+        translationModelInput.placeholder = `（使用默认：${t.model || ''}）`;      }
       updateGpuHint();
       updateAllForModel();
     } catch (err) {
@@ -121,11 +117,11 @@
         const opt = document.createElement('option');
         opt.value = m.slug;
         const flags = [];
-        if (m.is_free) flags.push('free');
-        if (!m.supports_json_mode) flags.push('no JSON');
+        if (m.is_free) flags.push('免费');
+        if (!m.supports_json_mode) flags.push('无 JSON');
         const flagStr = flags.length ? ` [${flags.join(', ')}]` : '';
         const date = fmtModelDate(m.created);
-        opt.label = `${m.slug} — ${date} — in ${fmtPricePer1M(m.prompt_per_token)} / out ${fmtPricePer1M(m.completion_per_token)} per 1M${flagStr}`;
+        opt.label = `${m.slug} — ${date} — 输入 ${fmtPricePer1M(m.prompt_per_token)} / 输出 ${fmtPricePer1M(m.completion_per_token)} 每百万${flagStr}`;
         datalist.appendChild(opt);
       }
       for (const o of ollamaOptions) datalist.appendChild(o);
@@ -158,20 +154,20 @@
     }
     list.innerHTML = '';
     if (!items.length) {
-      list.innerHTML = '<div style="padding:12px;color:#9aa4b8;font-size:0.85rem;">No models match.</div>';
+      list.innerHTML = '<div style="padding:12px;color:#9aa4b8;font-size:0.85rem;">无匹配模型。</div>';
       return;
     }
     for (const m of items) {
       const row = document.createElement('div');
       row.className = 'model-row';
       const badges = [];
-      if (isRecentModel(m.created)) badges.push('<span class="badge new">new</span>');
-      if (m.is_free) badges.push('<span class="badge free">free</span>');
-      if (!m.supports_json_mode) badges.push('<span class="badge no-json">no JSON</span>');
+      if (isRecentModel(m.created)) badges.push('<span class="badge new">新</span>');
+      if (m.is_free) badges.push('<span class="badge free">免费</span>');
+      if (!m.supports_json_mode) badges.push('<span class="badge no-json">无 JSON</span>');
       row.innerHTML = `
         <span class="slug">${m.slug}</span>
         <span class="date">${fmtModelDate(m.created) || '—'}</span>
-        <span class="price">in ${fmtPricePer1M(m.prompt_per_token)} / out ${fmtPricePer1M(m.completion_per_token)}</span>
+        <span class="price">输入 ${fmtPricePer1M(m.prompt_per_token)} / 输出 ${fmtPricePer1M(m.completion_per_token)}</span>
         <span class="badges">${badges.join('')}</span>
       `;
       row.addEventListener('click', () => {
@@ -285,9 +281,9 @@
       const ds = DEEPSEEK_PRICING[model];
       if (ds) {
         translationPricingEl.textContent =
-          `DeepSeek price: input ${fmtPricePerMillion(ds.prompt)} / output ${fmtPricePerMillion(ds.completion)} per 1M tokens`;
+          `DeepSeek 定价：输入 ${fmtPricePerMillion(ds.prompt)} / 输出 ${fmtPricePerMillion(ds.completion)} 每百万 token`;
       } else {
-        translationPricingEl.textContent = `(no pricing data for ${model})`;
+        translationPricingEl.textContent = `（${model} 无定价数据）`;
       }
       return;
     }
@@ -296,18 +292,18 @@
       return;
     }
     if (!cachedPricing) {
-      translationPricingEl.textContent = 'Loading pricing…';
+      translationPricingEl.textContent = 'OpenRouter 定价加载中…';
       return;
     }
     const entry = cachedPricing[model];
     if (!entry) {
-      translationPricingEl.textContent = `(no pricing data for ${model})`;
+      translationPricingEl.textContent = `（${model} 无定价数据）`;
       return;
     }
     const inP = fmtPricePerMillion(entry.prompt);
     const outP = fmtPricePerMillion(entry.completion);
     translationPricingEl.textContent =
-      `OpenRouter price: input ${inP} / output ${outP} per 1M tokens`;
+      `OpenRouter 定价：输入 ${inP} / 输出 ${outP} 每百万 token`;
   }
 
   function updateAllForModel() {
@@ -330,35 +326,35 @@
     if (backend) params.set('translation_backend', backend);
 
     const seq = ++estimateSeq;
-    estimateHintEl.textContent = 'Estimating…';
+    estimateHintEl.textContent = '估算中…';
     try {
       const res = await fetch(`/api/estimate?${params.toString()}`);
       const data = await res.json();
       if (seq !== estimateSeq) return;
       if (!data.success) {
-        estimateHintEl.textContent = data.message || 'Could not estimate';
+        estimateHintEl.textContent = data.message || '无法估算';
         return;
       }
       const t = data.tokens || {};
       const cost = data.cost;
       const sourceLabel = {
-        orig_srt: 'from existing transcript',
-        duration_heuristic: 'estimated from duration',
-        unknown: 'unknown size',
+        orig_srt: '来自已有转录',
+        duration_heuristic: '根据时长估算',
+        unknown: '大小未知',
       }[t.source] || t.source || '';
       const lineParts = [];
       if (t.segment_count) {
-        lineParts.push(`~${t.segment_count} lines`);
+        lineParts.push(`约 ${t.segment_count} 行`);
       } else if (t.duration_seconds) {
-        lineParts.push(`${(t.duration_seconds / 60).toFixed(1)} min`);
+        lineParts.push(`${(t.duration_seconds / 60).toFixed(1)} 分钟`);
       }
-      lineParts.push(`~${t.input_tokens.toLocaleString()} in / ~${t.output_tokens.toLocaleString()} out tokens`);
+      lineParts.push(`约 ${t.input_tokens.toLocaleString()} 输入 / 约 ${t.output_tokens.toLocaleString()} 输出 token`);
       let line = lineParts.join(' · ');
       if (cost) {
-        line += ` · estimated cost ~${fmtUsd(cost.total_usd)}`;
-        line += ` (in ${fmtUsd(cost.prompt_usd)} + out ${fmtUsd(cost.completion_usd)})`;
+        line += ` · 预估费用约 ${fmtUsd(cost.total_usd)}`;
+        line += `（输入 ${fmtUsd(cost.prompt_usd)} + 输出 ${fmtUsd(cost.completion_usd)}）`;
       } else if (data.translation_backend === 'openrouter' && model) {
-        line += ` · (no OpenRouter pricing for ${model})`;
+        line += ` · （${model} 无 OpenRouter 定价）`;
       }
       if (sourceLabel) line += ` — ${sourceLabel}`;
       estimateHintEl.textContent = line;
@@ -399,7 +395,7 @@
   }
 
   async function refreshMedia() {
-    mediaSelect.innerHTML = '<option value="">(loading...)</option>';
+    mediaSelect.innerHTML = '<option value="">（加载中...）</option>';
     try {
       const res = await fetch('/api/media');
       const data = await res.json();
@@ -407,7 +403,7 @@
       if (!data.files || !data.files.length) {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = '(no media files in MEDIA_DIR)';
+        opt.textContent = '（MEDIA_DIR 中无媒体文件）';
         mediaSelect.appendChild(opt);
         return;
       }
@@ -419,7 +415,7 @@
       }
       refreshEstimate();
     } catch (err) {
-      mediaSelect.innerHTML = `<option value="">(error: ${err})</option>`;
+      mediaSelect.innerHTML = `<option value="">（错误：${err}）</option>`;
     }
   }
 
@@ -440,12 +436,19 @@
     return el;
   }
 
+  const STATUS_LABELS = {
+    running: '运行中',
+    completed: '已完成',
+    failed: '失败',
+    awaiting_translation: '等待翻译',
+  };
+
   function updateJobCard(el, status) {
     el.classList.remove('completed', 'failed', 'running', 'awaiting_translation');
     el.classList.add(status.status || 'running');
 
     el.querySelector('.meta').textContent =
-      `${status.status || 'running'} · ${status.progress || 0}% · ${status.message || ''}`;
+      `${STATUS_LABELS[status.status] || status.status || '运行中'} · ${status.progress || 0}% · ${status.message || ''}`;
     el.querySelector('.bar > div').style.width = `${status.progress || 0}%`;
 
     const errEl = el.querySelector('.error');
@@ -473,16 +476,16 @@
     // Cancel button while running or awaiting translation.
     if (status.status === 'running') {
       const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = 'Cancel';
+      cancelBtn.textContent = '取消';
       cancelBtn.className = 'danger';
       cancelBtn.onclick = async () => {
-        if (!confirm('Cancel this job?')) return;
+        if (!confirm('确认取消此任务？')) return;
         cancelBtn.disabled = true;
-        cancelBtn.textContent = 'Cancelling…';
+        cancelBtn.textContent = '取消中…';
         try {
           await fetch(`/api/jobs/${status.job_id}/cancel`, { method: 'POST' });
         } catch (err) {
-          alert(`Cancel failed: ${err}`);
+          alert(`取消失败：${err}`);
         }
       };
       actions.appendChild(cancelBtn);
@@ -505,29 +508,29 @@
       const r = status.result;
       const usage = r.usage || {};
       const lines = [];
-      lines.push(`Whisper: ${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
+      lines.push(`Whisper：${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
       lines.push(
-        `Translation: ${r.translation_model || '?'} (${r.translation_backend || '?'})`
+        `翻译：${r.translation_model || '?'} (${r.translation_backend || '?'})`
       );
       if (usage.total_tokens) {
         lines.push(
-          `Tokens: ${usage.prompt_tokens || 0} in / ${usage.completion_tokens || 0} out`
+          `Token 用量：${usage.prompt_tokens || 0} 输入 / ${usage.completion_tokens || 0} 输出`
         );
       }
       if (status.cost) {
         lines.push(
-          `Estimated cost: ${fmtUsd(status.cost.total_usd)} ` +
-          `(in ${fmtUsd(status.cost.prompt_usd)} + out ${fmtUsd(status.cost.completion_usd)})`
+          `预估费用：${fmtUsd(status.cost.total_usd)} ` +
+          `（输入 ${fmtUsd(status.cost.prompt_usd)} + 输出 ${fmtUsd(status.cost.completion_usd)}）`
         );
       } else if (r.translation_backend === 'openrouter' && usage.total_tokens) {
-        lines.push('Estimated cost: (no pricing data for this model)');
+        lines.push('预估费用：（此模型无定价数据）');
       }
       summary.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
       actions.appendChild(summary);
 
       const links = [
-        ['original', 'Download original SRT'],
-        ['bilingual', 'Download bilingual SRT'],
+        ['original', '下载原始 SRT'],
+        ['bilingual', '下载双语 SRT'],
       ];
       for (const [kind, label] of links) {
         const a = document.createElement('a');
@@ -547,15 +550,15 @@
     const summary = document.createElement('div');
     summary.className = 'job-summary';
     const lines = [];
-    lines.push(`Whisper: ${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
-    lines.push(`Detected source language: ${r.source_language || 'unknown'}`);
-    if (r.segment_count) lines.push(`${r.segment_count} subtitle lines transcribed`);
+    lines.push(`Whisper：${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
+    lines.push(`检测到的源语言：${r.source_language || '未知'}`);
+    if (r.segment_count) lines.push(`已转录 ${r.segment_count} 行字幕`);
     summary.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
     actions.appendChild(summary);
 
     // Allow downloading the orig SRT immediately.
     const origBtn = document.createElement('button');
-    origBtn.textContent = 'Download original SRT';
+    origBtn.textContent = '下载原始 SRT';
     origBtn.onclick = () => {
       window.location.href = `/api/jobs/${status.job_id}/download/original`;
     };
@@ -573,27 +576,27 @@
 
     panel.innerHTML = `
       <div class="row">
-        <strong>Pick translation model</strong>
+        <strong>选择翻译模型</strong>
         <span class="hint job-pricing"></span>
       </div>
       <div class="row">
         <label class="inline">
-          Target lang
+          目标语言
           <input type="text" class="job-target" value="${currentTarget}" size="6">
         </label>
         <select class="job-backend">
-          <option value="">Default backend</option>
+          <option value="">默认引擎</option>
           <option value="ollama">Ollama</option>
           <option value="openrouter">OpenRouter</option>
           <option value="deepseek">DeepSeek</option>
         </select>
         <input type="text" class="job-model" list="translation-model-list"
-               placeholder="(default: ${defaultTranslationModel})">
+               placeholder="（默认：${defaultTranslationModel}）">
         <label class="inline">
-          Chunk size
+          分块大小
           <input type="number" class="job-chunk" min="1" max="50" step="1" size="3">
         </label>
-        <button type="button" class="primary job-translate-btn">Translate</button>
+        <button type="button" class="primary job-translate-btn">翻译</button>
       </div>
       <div class="hint job-estimate"></div>
     `;
@@ -640,8 +643,8 @@
       if (backend === 'deepseek' && model) {
         const ds = DEEPSEEK_PRICING[model];
         pricingEl.textContent = ds
-          ? `DeepSeek: input ${fmtPricePerMillion(ds.prompt)} / output ${fmtPricePerMillion(ds.completion)} per 1M tokens`
-          : `(no DeepSeek pricing for ${model})`;
+          ? `DeepSeek：输入 ${fmtPricePerMillion(ds.prompt)} / 输出 ${fmtPricePerMillion(ds.completion)} 每百万 token`
+          : `（${model} 无 DeepSeek 定价）`;
         return;
       }
       if (backend !== 'openrouter') {
@@ -654,18 +657,18 @@
       }
       const entry = cachedPricing[model];
       if (!entry) {
-        pricingEl.textContent = `(no OpenRouter pricing for ${model})`;
+        pricingEl.textContent = `（${model} 无 OpenRouter 定价）`;
         return;
       }
       pricingEl.textContent =
-        `OpenRouter: input ${fmtPricePerMillion(entry.prompt)} / output ${fmtPricePerMillion(entry.completion)} per 1M tokens`;
+        `OpenRouter：输入 ${fmtPricePerMillion(entry.prompt)} / 输出 ${fmtPricePerMillion(entry.completion)} 每百万 token`;
     }
 
     let jobEstSeq = 0;
     async function refreshJobEstimate() {
       const model = modelInput.value.trim() || defaultTranslationModel;
       const seq = ++jobEstSeq;
-      estimateEl.textContent = 'Estimating…';
+      estimateEl.textContent = '估算中…';
       const params = new URLSearchParams({ job_id: status.job_id });
       if (model) params.set('translation_model', model);
       if (backendInput.value) params.set('translation_backend', backendInput.value);
@@ -680,12 +683,12 @@
         const t = data.tokens || {};
         const cost = data.cost;
         const parts = [];
-        if (t.segment_count) parts.push(`~${t.segment_count} lines`);
-        parts.push(`~${t.input_tokens.toLocaleString()} in / ~${t.output_tokens.toLocaleString()} out tokens`);
+        if (t.segment_count) parts.push(`约 ${t.segment_count} 行`);
+        parts.push(`约 ${t.input_tokens.toLocaleString()} 输入 / 约 ${t.output_tokens.toLocaleString()} 输出 token`);
         if (cost) {
-          parts.push(`estimated cost ~${fmtUsd(cost.total_usd)}`);
+          parts.push(`预估费用约 ${fmtUsd(cost.total_usd)}`);
         } else if (data.translation_backend === 'openrouter' && model) {
-          parts.push(`(no pricing for ${model})`);
+          parts.push(`（${model} 无定价数据）`);
         }
         estimateEl.textContent = parts.join(' · ');
       } catch (err) {
@@ -709,7 +712,7 @@
       if (translateBtn.disabled) return;
       translateBtn.disabled = true;
       const prevText = translateBtn.textContent;
-      translateBtn.textContent = 'Starting…';
+      translateBtn.textContent = '启动中…';
       try {
         const fd = new FormData();
         const model = modelInput.value.trim();
@@ -726,10 +729,10 @@
         });
         const data = await res.json();
         if (!data.success) {
-          alert(data.message || 'Failed to start translation');
+          alert(data.message || '翻译启动失败');
         }
       } catch (err) {
-        alert(`Failed to start translation: ${err}`);
+        alert(`翻译启动失败：${err}`);
       } finally {
         translateBtn.disabled = false;
         translateBtn.textContent = prevText;
@@ -752,7 +755,7 @@
         continue;
       }
       if (!status.success) {
-        el.querySelector('.error').textContent = status.message || 'Job not found';
+        el.querySelector('.error').textContent = status.message || '任务不存在';
         return;
       }
       updateJobCard(el, status);
@@ -769,7 +772,7 @@
   async function startExistingJob() {
     const selected = mediaSelect.value;
     if (!selected) {
-      alert('Please choose a media file');
+      alert('请选择一个媒体文件');
       return;
     }
     const fd = new FormData();
@@ -784,7 +787,7 @@
   async function startUploadJob() {
     const file = uploadInput.files && uploadInput.files[0];
     if (!file) {
-      alert('Please choose a file to upload');
+      alert('请选择要上传的文件');
       return;
     }
     const fd = new FormData();
@@ -802,11 +805,11 @@
       res = await fetch('/api/jobs', { method: 'POST', body: formData });
       data = await res.json();
     } catch (err) {
-      alert(`Failed to start job: ${err}`);
+      alert(`任务启动失败：${err}`);
       return;
     }
     if (!data.success) {
-      alert(data.message || 'Failed to start job');
+      alert(data.message || '任务启动失败');
       return;
     }
     const card = createJobCard(data.job_id, label);
@@ -819,7 +822,7 @@
       if (btn.disabled) return;
       btn.disabled = true;
       const prevText = btn.textContent;
-      btn.textContent = 'Starting...';
+      btn.textContent = '启动中...';
       try {
         await fn();
       } finally {
