@@ -1,4 +1,7 @@
 import re
+import shutil
+import subprocess
+import sys
 import time
 import unicodedata
 from pathlib import Path
@@ -182,6 +185,105 @@ def _resolve_local_media_path(raw_path):
     return candidate, None
 
 
+def _open_native_file_dialog():
+    """Open a local OS file picker and return the selected absolute path."""
+    if sys.platform == "darwin":
+        result = subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'set selectedFile to choose file with prompt "选择媒体文件"',
+                "-e",
+                "POSIX path of selectedFile",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+        selected = result.stdout.strip()
+        return selected or None
+
+    if sys.platform == "win32":
+        command = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$dialog = New-Object System.Windows.Forms.OpenFileDialog; "
+            "$dialog.Title = '选择媒体文件'; "
+            "$dialog.Filter = 'Media files|*.mp4;*.m4a;*.mp3;*.wav;*.mkv;*.mov;*.webm;*.aac;*.flac;*.ts;*.avi|All files|*.*'; "
+            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) "
+            "{ $dialog.FileName }"
+        )
+        result = subprocess.run(
+            ["powershell", "-STA", "-NoProfile", "-Command", command],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return None
+        selected = result.stdout.strip()
+        return selected or None
+
+    zenity = shutil.which("zenity")
+    if zenity:
+        result = subprocess.run(
+            [
+                zenity,
+                "--file-selection",
+                "--title=选择媒体文件",
+                "--file-filter=Media files | *.mp4 *.m4a *.mp3 *.wav *.mkv *.mov *.webm *.aac *.flac *.ts *.avi",
+                "--file-filter=All files | *",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            selected = result.stdout.strip()
+            return selected or None
+
+    kdialog = shutil.which("kdialog")
+    if kdialog:
+        result = subprocess.run(
+            [
+                kdialog,
+                "--getopenfilename",
+                "",
+                "*.mp4 *.m4a *.mp3 *.wav *.mkv *.mov *.webm *.aac *.flac *.ts *.avi|Media files",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            selected = result.stdout.strip()
+            return selected or None
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception:
+        return None
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        selected = filedialog.askopenfilename(
+            title="选择媒体文件",
+            filetypes=[
+                (
+                    "Media files",
+                    "*.mp4 *.m4a *.mp3 *.wav *.mkv *.mov *.webm *.aac *.flac *.ts *.avi",
+                ),
+                ("All files", "*.*"),
+            ],
+        )
+        return selected or None
+    finally:
+        root.destroy()
+
+
 def _resolve_media_path(filename):
     media_dir = _media_dir()
     target = (media_dir / filename).resolve()
@@ -248,6 +350,19 @@ def index():
 def list_media():
     manager = get_subtitle_manager()
     return jsonify({"files": manager.list_media_files()})
+
+
+@main_bp.route("/api/dialog/open", methods=["POST"])
+def open_file_dialog():
+    selected = _open_native_file_dialog()
+    if not selected:
+        return jsonify({"success": False, "canceled": True})
+
+    candidate, error = _resolve_local_media_path(selected)
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+
+    return jsonify({"success": True, "path": str(candidate)})
 
 
 @main_bp.route("/api/config")

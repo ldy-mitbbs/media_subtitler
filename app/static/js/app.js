@@ -1,5 +1,6 @@
 (() => {
   const localPathInput = document.getElementById('local-path');
+  const chooseLocalBtn = document.getElementById('choose-local');
   const startLocalBtn = document.getElementById('start-local');
   const sourceLangSelect = document.getElementById('source-language');
   const targetLangSelect = document.getElementById('target-language');
@@ -920,6 +921,32 @@
     await submitJob(fd, localPath.split(/[\\/]/).pop() || localPath);
   }
 
+  async function chooseLocalFile() {
+    if (!chooseLocalBtn || chooseLocalBtn.disabled) return;
+    chooseLocalBtn.disabled = true;
+    const prevText = chooseLocalBtn.textContent;
+    chooseLocalBtn.textContent = '选择中...';
+    try {
+      const res = await fetch('/api/dialog/open', { method: 'POST' });
+      const data = await res.json();
+      if (data.canceled) return;
+      if (!data.success) {
+        alert(data.message || '选择文件失败');
+        return;
+      }
+      if (localPathInput) {
+        localPathInput.value = data.path || '';
+        refreshEstimate();
+        localPathInput.focus();
+      }
+    } catch (err) {
+      alert(`选择文件失败：${err}`);
+    } finally {
+      chooseLocalBtn.disabled = false;
+      chooseLocalBtn.textContent = prevText;
+    }
+  }
+
   async function submitJob(formData, label) {
     let res, data;
     try {
@@ -953,6 +980,7 @@
     };
   }
 
+  if (chooseLocalBtn) chooseLocalBtn.addEventListener('click', chooseLocalFile);
   if (startLocalBtn) startLocalBtn.addEventListener('click', withSubmitGuard(startLocalBtn, startLocalJob));
   if (localPathInput) {
     localPathInput.addEventListener('input', refreshEstimate);

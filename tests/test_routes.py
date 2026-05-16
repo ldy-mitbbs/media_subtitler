@@ -43,6 +43,30 @@ class TestApiMedia:
         assert resp.get_json()["files"] == []
 
 
+class TestFileDialog:
+    def test_open_file_dialog_returns_selected_local_path(self, client, tmp_path, mocker):
+        media = tmp_path / "ep01.mkv"
+        media.write_bytes(b"fake")
+        mocker.patch("app.routes._open_native_file_dialog", return_value=str(media))
+
+        resp = client.post("/api/dialog/open")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["path"] == str(media.resolve())
+
+    def test_open_file_dialog_reports_cancel(self, client, mocker):
+        mocker.patch("app.routes._open_native_file_dialog", return_value=None)
+
+        resp = client.post("/api/dialog/open")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is False
+        assert data["canceled"] is True
+
+
 class TestApiConfig:
     def test_returns_config(self, client):
         resp = client.get("/api/config")
