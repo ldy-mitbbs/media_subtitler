@@ -49,4 +49,5 @@ markers = [
     "slow: tests that take >5s or load large models",
     "ollama: tests that require a running Ollama daemon",
     "openrouter: tests that require an OpenRouter API key",
+    "deepseek: tests that require a DeepSeek API key",
 ]
