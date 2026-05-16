@@ -31,6 +31,16 @@ def _get_setting(settings, key, default=""):
     return settings.get(key, default)
 
 
+def _get_nonempty_setting(settings, key, default=""):
+    """Read a setting, treating blank strings as missing."""
+    val = settings.get(key)
+    if isinstance(val, str) and not val.strip():
+        return default
+    if val is None:
+        return default
+    return val
+
+
 def _get_setting_int(settings, key, default=0):
     raw = _get_setting(settings, key, default)
     try:
@@ -153,25 +163,25 @@ class Config:
     MEDIA_DIR = _get_setting(SETTINGS, "MEDIA_DIR", "media")
 
     # --- ASR ---
-    ASR_BACKEND = _get_setting(
+    ASR_BACKEND = _get_nonempty_setting(
         SETTINGS,
         "ASR_BACKEND",
-        _get_setting(SETTINGS, "WHISPER_BACKEND", _default_whisper_backend()),
+        _get_nonempty_setting(SETTINGS, "WHISPER_BACKEND", _default_whisper_backend()),
     )
-    ASR_MODEL = _get_setting(
+    ASR_MODEL = _get_nonempty_setting(
         SETTINGS,
         "ASR_MODEL",
-        _get_setting(SETTINGS, "WHISPER_MODEL", "large-v3"),
+        _get_nonempty_setting(SETTINGS, "WHISPER_MODEL", "large-v3"),
     )
-    ASR_DEVICE = _get_setting(
+    ASR_DEVICE = _get_nonempty_setting(
         SETTINGS,
         "ASR_DEVICE",
-        _get_setting(SETTINGS, "WHISPER_DEVICE", "auto"),
+        _get_nonempty_setting(SETTINGS, "WHISPER_DEVICE", "auto"),
     )
-    ASR_COMPUTE_TYPE = _get_setting(
+    ASR_COMPUTE_TYPE = _get_nonempty_setting(
         SETTINGS,
         "ASR_COMPUTE_TYPE",
-        _get_setting(SETTINGS, "WHISPER_COMPUTE_TYPE", _default_compute_type()),
+        _get_nonempty_setting(SETTINGS, "WHISPER_COMPUTE_TYPE", _default_compute_type()),
     )
     QWEN_ASR_CHUNK_SECONDS = _get_setting_int(SETTINGS, "QWEN_ASR_CHUNK_SECONDS", 90)
     # Backward-compatible aliases for older code and existing settings.
