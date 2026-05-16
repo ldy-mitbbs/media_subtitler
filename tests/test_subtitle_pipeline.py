@@ -137,7 +137,15 @@ def test_process_skip_transcription_uses_existing_orig_srt(tmp_path, mocker):
     mocker.patch.object(
         pipeline,
         "_translate_segments",
-        return_value=[{"start": 0.0, "end": 1.0, "text": "안녕\n你好"}],
+        return_value=[
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "source_text": "안녕\n먼저 갈게요",
+                "target_text": "你好\n我先走了",
+                "text": "안녕\n먼저 갈게요\n你好\n我先走了",
+            }
+        ],
     )
 
     result = pipeline.process(
@@ -151,6 +159,14 @@ def test_process_skip_transcription_uses_existing_orig_srt(tmp_path, mocker):
     bilingual = Path(result["bilingual_srt"])
     assert bilingual.exists()
     assert bilingual.name.endswith(".bilingual.srt")
+    styled = Path(result["bilingual_ass"])
+    assert styled.exists()
+    assert styled.name.endswith(".bilingual.ass")
+    styled_text = styled.read_text(encoding="utf-8-sig")
+    assert "Style: Source" in styled_text
+    assert "Style: Translation" in styled_text
+    assert styled_text.count("Dialogue: 0,0:00:00.00,0:00:01.00,Source") == 1
+    assert r"{\rSource}안녕\N먼저 갈게요\N{\rTranslation}你好\N我先走了" in styled_text
 
 
 def test_process_skip_transcription_requires_existing_orig_srt(tmp_path):
@@ -345,6 +361,7 @@ def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
     translate_mock.assert_not_called()
     assert result["stage"] == "transcribed"
     assert result["bilingual_srt"] is None
+    assert result["bilingual_ass"] is None
     assert result["segment_count"] == 1
     assert Path(result["original_srt"]).exists()
 
@@ -470,6 +487,7 @@ def test_start_translation_resumes_with_overrides(tmp_path, mocker):
             "segment_count": 1,
             "original_srt": str(orig_srt),
             "bilingual_srt": str(media_path).replace(".mp4", ".bilingual.srt"),
+            "bilingual_ass": str(media_path).replace(".mp4", ".bilingual.ass"),
             "translation_model": self.translation_model,
             "translation_backend": self.translation_backend,
             "whisper_model": self.whisper_model_name,

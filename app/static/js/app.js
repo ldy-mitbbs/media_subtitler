@@ -1,10 +1,6 @@
 (() => {
-  const mediaSelect = document.getElementById('media-file');
-  const refreshBtn = document.getElementById('refresh-media');
-  const playExistingBtn = document.getElementById('play-existing');
-  const startExistingBtn = document.getElementById('start-existing');
-  const uploadInput = document.getElementById('upload-input');
-  const startUploadBtn = document.getElementById('start-upload');
+  const localPathInput = document.getElementById('local-path');
+  const startLocalBtn = document.getElementById('start-local');
   const sourceLangSelect = document.getElementById('source-language');
   const targetLangSelect = document.getElementById('target-language');
   const whisperBackendSelect = document.getElementById('whisper-backend');
@@ -442,12 +438,12 @@
   let estimateSeq = 0;
   async function refreshEstimate() {
     if (!estimateHintEl) return;
-    const selected = mediaSelect.value;
-    if (!selected) {
+    const localPath = (localPathInput && localPathInput.value || '').trim();
+    if (!localPath) {
       estimateHintEl.textContent = '';
       return;
     }
-    const params = new URLSearchParams({ selected_file: selected });
+    const params = new URLSearchParams({ local_path: localPath });
     const model = activeTranslationModel();
     const backend = activeTranslationBackend();
     if (model) params.set('translation_model', model);
@@ -520,31 +516,6 @@
 
   function appendRunMode(fd) {
     fd.append('mode', selectedRunMode());
-  }
-
-  async function refreshMedia() {
-    mediaSelect.innerHTML = '<option value="">（加载中...）</option>';
-    try {
-      const res = await fetch('/api/media');
-      const data = await res.json();
-      mediaSelect.innerHTML = '';
-      if (!data.files || !data.files.length) {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = '（MEDIA_DIR 中无媒体文件）';
-        mediaSelect.appendChild(opt);
-        return;
-      }
-      for (const name of data.files) {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        mediaSelect.appendChild(opt);
-      }
-      refreshEstimate();
-    } catch (err) {
-      mediaSelect.innerHTML = `<option value="">（错误：${err}）</option>`;
-    }
   }
 
   function createJobCard(jobId, label) {
@@ -660,6 +631,9 @@
         ['original', '下载原始 SRT'],
         ['bilingual', '下载双语 SRT'],
       ];
+      if (r.bilingual_ass) {
+        links.push(['styled', '下载样式 ASS']);
+      }
       for (const [kind, label] of links) {
         const a = document.createElement('a');
         a.href = `/api/jobs/${status.job_id}/download/${kind}`;
@@ -931,66 +905,19 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  async function startExistingJob() {
-    const selected = mediaSelect.value;
-    if (!selected) {
-      alert('请选择一个媒体文件');
+  async function startLocalJob() {
+    const localPath = (localPathInput && localPathInput.value || '').trim();
+    if (!localPath) {
+      alert('请输入本地媒体文件路径');
       return;
     }
     const fd = new FormData();
-    fd.append('selected_file', selected);
+    fd.append('local_path', localPath);
     if (sourceLangSelect.value) fd.append('source_language', sourceLangSelect.value);
     if (targetLangSelect && targetLangSelect.value) fd.append('target_language', targetLangSelect.value);
     appendModelOverrides(fd);
     appendRunMode(fd);
-    await submitJob(fd, selected);
-  }
-
-  async function playExistingMedia() {
-    const selected = mediaSelect.value;
-    if (!selected) {
-      alert('请选择一个媒体文件');
-      return;
-    }
-    const prevText = playExistingBtn ? playExistingBtn.textContent : '';
-    if (playExistingBtn) {
-      playExistingBtn.disabled = true;
-      playExistingBtn.textContent = '打开中...';
-    }
-    try {
-      const fd = new FormData();
-      fd.append('selected_file', selected);
-      const res = await fetch('/api/media/open', {
-        method: 'POST',
-        body: fd,
-      });
-      const data = await res.json();
-      if (!data.success) {
-        alert(data.message || '无法打开视频');
-      }
-    } catch (err) {
-      alert(`打开视频失败：${err}`);
-    } finally {
-      if (playExistingBtn) {
-        playExistingBtn.disabled = false;
-        playExistingBtn.textContent = prevText;
-      }
-    }
-  }
-
-  async function startUploadJob() {
-    const file = uploadInput.files && uploadInput.files[0];
-    if (!file) {
-      alert('请选择要上传的文件');
-      return;
-    }
-    const fd = new FormData();
-    fd.append('media_file', file);
-    if (sourceLangSelect.value) fd.append('source_language', sourceLangSelect.value);
-    if (targetLangSelect && targetLangSelect.value) fd.append('target_language', targetLangSelect.value);
-    appendModelOverrides(fd);
-    appendRunMode(fd);
-    await submitJob(fd, file.name);
+    await submitJob(fd, localPath.split(/[\\/]/).pop() || localPath);
   }
 
   async function submitJob(formData, label) {
@@ -1008,7 +935,7 @@
     }
     const card = createJobCard(data.job_id, label);
     pollJob(data.job_id, card);
-    refreshMedia();
+    refreshEstimate();
   }
 
   function withSubmitGuard(btn, fn) {
@@ -1026,12 +953,15 @@
     };
   }
 
-  refreshBtn.addEventListener('click', refreshMedia);
-  if (playExistingBtn) {
-    playExistingBtn.addEventListener('click', playExistingMedia);
+  if (startLocalBtn) startLocalBtn.addEventListener('click', withSubmitGuard(startLocalBtn, startLocalJob));
+  if (localPathInput) {
+    localPathInput.addEventListener('input', refreshEstimate);
+    localPathInput.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && startLocalBtn) {
+        withSubmitGuard(startLocalBtn, startLocalJob)();
+      }
+    });
   }
-  startExistingBtn.addEventListener('click', withSubmitGuard(startExistingBtn, startExistingJob));
-  startUploadBtn.addEventListener('click', withSubmitGuard(startUploadBtn, startUploadJob));
   if (translationModelInput) {
     translationModelInput.addEventListener('input', () => {
       updateAllForModel();
@@ -1051,9 +981,6 @@
   if (gpuBaseUrlInput) {
     gpuBaseUrlInput.addEventListener('input', updateGpuHint);
   }
-  if (mediaSelect) {
-    mediaSelect.addEventListener('change', refreshEstimate);
-  }
   if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', saveSettings);
   }
@@ -1063,5 +990,5 @@
   loadPricing();
   loadModels();
   bindModelPicker();
-  refreshMedia();
+  refreshEstimate();
 })();

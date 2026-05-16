@@ -272,22 +272,12 @@
     </div>
 
     <div class="form-row">
-      <label>已有媒体文件</label>
+      <label for="local-path">本地文件路径</label>
       <div class="row">
-        <select id="media-file"></select>
-        <button id="refresh-media" type="button">刷新</button>
-        <button id="play-existing" type="button">直接播放</button>
-        <button id="start-existing" type="button" class="primary">运行</button>
+        <input id="local-path" type="text" placeholder="/Volumes/Drama/episode.mkv">
+        <button id="start-local" type="button" class="primary">直接运行</button>
       </div>
       <div class="hint" id="estimate-hint"></div>
-    </div>
-
-    <div class="form-row">
-      <label for="upload-input">上传文件</label>
-      <div class="row">
-        <input id="upload-input" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.ts,.m4v,.m4a,.mp3,.wav,.aac,.flac">
-        <button id="start-upload" type="button" class="primary">上传并运行</button>
-      </div>
     </div>
   </section>
 

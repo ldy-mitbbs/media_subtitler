@@ -16,10 +16,11 @@
   - `ollama` — 本地 `/api/chat` 端点。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
-- **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写 SRT。
+- **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写字幕。
 - **输出**：
   - `<media>.orig.srt` — 源语言字幕。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
+  - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
 - **Web UI**：小型 Flask 界面，支持上传、进度跟踪、下载。
@@ -101,7 +102,7 @@ Windows 自检：
 # 语音转文字 + 翻译（自动识别源语言）
 python subtitle_pipeline.py path/to/episode.mkv
 
-# 相对 MEDIA_DIR 解析文件路径
+# 也可以传入文件名，程序会相对 MEDIA_DIR 解析
 python subtitle_pipeline.py episode.mkv
 
 # 复用已有转文字结果重新翻译
@@ -176,7 +177,7 @@ TRANSLATION_MODEL=qwen2.5:14b
 python run.py --port 5050
 ```
 
-打开 http://localhost:5050。界面会列出 `MEDIA_DIR` 下的媒体文件，支持上传和实时进度查看。
+打开 http://localhost:5050。在「本地文件路径」输入视频的绝对路径，程序会直接处理源文件，并把 `.orig.srt`、`.bilingual.srt`、`.bilingual.ass` 写在视频旁边。
 
 Windows:
 
@@ -190,7 +191,7 @@ Windows:
 
 <img src="docs/screenshots/settings.png" width="800">
 
-**新建任务** — 选择源语言、目标语言（中文/英文）、Whisper 后端和翻译后端，支持从已有媒体文件直接运行或上传新视频：
+**新建任务** — 输入本地媒体文件路径，选择源语言、目标语言（中文/英文）、Whisper 后端和翻译后端：
 
 <img src="docs/screenshots/new-job.png" width="800">
 
@@ -220,7 +221,7 @@ drama_subtitler/
 ├── contrib/                     # 远程 GPU Whisper/Ollama helper
 ├── scripts/                     # Windows setup/run/check helper
 ├── tests/                      # 单元测试
-└── media/                      # 默认 MEDIA_DIR（按需创建）
+└── media/                      # CLI 相对路径解析用的默认 MEDIA_DIR（按需创建）
 ```
 
 ## 技术文档

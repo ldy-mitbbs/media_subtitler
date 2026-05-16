@@ -4,10 +4,11 @@
 
 ## 1. 项目概述
 
-`drama_subtitler` 是一个本地运行的字幕生成与翻译管道。输入是用户已有的视频文件，输出是两个字幕文件：
+`drama_subtitler` 是一个本地运行的字幕生成与翻译管道。输入是用户已有的视频文件，输出是字幕文件：
 
 - `<media>.orig.srt`：Whisper 识别出的原始语言字幕
 - `<media>.bilingual.srt`：双语字幕（原始语言 + 目标语言翻译，逐条显示）
+- `<media>.bilingual.ass`：带样式的双语字幕（原文和译文使用不同字体/颜色）
 
 虽然架构上支持任意源语言和目标语言，但本项目**开发并实际测试的主要场景**是：
 - 源语言：**日语**（`ja`）、**韩语**（`ko`）
@@ -69,7 +70,7 @@ shell 环境变量 > .env.local > .env > 代码默认值
 - **Whisper**: `WHISPER_BACKEND`, `WHISPER_MODEL`, `WHISPER_CPP_MODEL_PATH` 等
 - **翻译后端**: `TRANSLATION_BACKEND`（`ollama` / `openrouter` / `deepseek`）
 - **目标语言**: `TARGET_LANGUAGE`（默认 `zh`）
-- **媒体目录**: `MEDIA_DIR`
+- **媒体目录**: `MEDIA_DIR`（CLI 相对路径解析使用；Web UI 直接处理本地绝对路径）
 
 **注意**: 默认后端在 Apple Silicon 上自动选 `whispercpp`，其他平台用 `faster-whisper`。
 
@@ -231,8 +232,8 @@ SubtitlePipeline.process()
 ```
 POST /api/jobs
   │
-  ├─ 上传文件 → media/uploads/
-  │  或选择已有文件
+  ├─ local_path 指向本机已有媒体文件
+  │
   │
   ▼
 SubtitleJobManager.start_job()
@@ -241,7 +242,7 @@ SubtitleJobManager.start_job()
   ├─ 通过 progress_cb 更新进度到 jobs[job_id]
   │
 GET /api/jobs/<id>          # 轮询进度
-GET /api/jobs/<id>/download/original|bilingual  # 下载 SRT
+GET /api/jobs/<id>/download/original|bilingual|styled  # 下载字幕
 ```
 
 进度百分比分配（大致）：
@@ -273,6 +274,8 @@ GET /api/jobs/<id>/download/original|bilingual  # 下载 SRT
 - 学习者可以对照原文
 - 翻译错误时可以通过原文校对
 - 播放器/字幕组通常需要双语版本
+
+同时会生成 `.bilingual.ass`，用于支持 ASS/SSA 的播放器按样式区分原文和译文。
 
 ### 5.4 为什么翻译 prompt 强调"电视剧对白"？
 
