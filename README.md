@@ -57,12 +57,22 @@ winget install Ollama.Ollama
 如果你要在 Windows/NVIDIA 机器上本机跑语音转文字，确认 NVIDIA 驱动可用，并优先使用：
 
 ```powershell
-WHISPER_BACKEND=faster-whisper
-WHISPER_DEVICE=auto
-WHISPER_COMPUTE_TYPE=auto
+ASR_BACKEND=faster-whisper
+ASR_DEVICE=auto
+ASR_COMPUTE_TYPE=auto
 ```
 
 `faster-whisper` 第一次运行会下载模型到 Hugging Face cache。`large-v3` 约 3GB；想先试通流程可以用 `small` 或 `medium`。
+
+也可以选择本地 Qwen3-ASR：
+
+```bash
+pip install '.[qwen-asr]'
+ASR_BACKEND=qwen3-asr
+ASR_MODEL=Qwen/Qwen3-ASR-1.7B
+```
+
+Qwen3-ASR 速度较快，但当前时间轴是按分句近似生成；如果视频本身有内嵌字幕，程序仍会优先提取内嵌字幕。
 
 如果本机 GPU 语音转文字报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装运行时。
 
@@ -74,7 +84,7 @@ Windows 自检：
 
 系统依赖：
 
-- `ffmpeg` 必须在 `PATH` 中（两个 Whisper 后端都需要）。
+- `ffmpeg` 必须在 `PATH` 中（本地/远程 ASR 和内嵌字幕提取都需要）。
 - 如果要直接复用日本电视 TS 文件里的 `[字]` 字幕，`ffmpeg` 还需要支持
   `arib_caption` 解码。普通 Homebrew `ffmpeg` 可能没有这个解码器；macOS
   可使用支持 `--with-libaribcaption` 的 ffmpeg 构建，或自行编译带
@@ -108,7 +118,7 @@ python subtitle_pipeline.py episode.mkv --show-translation-stream
 
 # 使用局域网 Windows/NVIDIA 机器转文字，且用同一台机器的 Ollama 翻译
 python subtitle_pipeline.py episode.mkv \
-  --whisper-backend remote-faster-whisper \
+  --asr-backend remote-faster-whisper \
   --translation-backend ollama \
   --gpu-base-url http://192.168.1.42
 ```

@@ -391,6 +391,51 @@ def test_remote_faster_whisper_backend_posts_audio_and_writes_srt(tmp_path, mock
     assert post_mock.call_args.args[0] == "http://gpu.example:5051/transcribe"
 
 
+def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
+    media_path = tmp_path / "ep01.mp4"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline(
+        ASR_BACKEND="qwen3-asr",
+        ASR_MODEL="Qwen/Qwen3-ASR-1.7B",
+        QWEN_ASR_CHUNK_SECONDS=90,
+    )
+    mocker.patch.object(pipeline, "_find_embedded_subtitle_stream", return_value=None)
+    mocker.patch("app.models.subtitle_pipeline.Qwen3ASRModel", autospec=True)
+    mocker.patch("app.models.subtitle_pipeline.torch", autospec=True)
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_extract_audio_mono_16k")
+    mocker.patch.object(pipeline, "_probe_audio_duration", return_value=90.0)
+    wav_path = tmp_path / "chunk.wav"
+    wav_path.write_bytes(b"wav")
+    mocker.patch.object(pipeline, "_split_audio_chunks", return_value=[wav_path])
+
+    class FakeResult:
+        language = "Japanese"
+        text = "こんにちは。ありがとう。"
+
+    class FakeModel:
+        def transcribe(self, **kwargs):  # noqa: ARG002
+            return [FakeResult()]
+
+    from_pretrained = mocker.patch(
+        "app.models.subtitle_pipeline.Qwen3ASRModel.from_pretrained",
+        return_value=FakeModel(),
+    )
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 90.0, "text": "こんにちは\n你好"}],
+    )
+
+    result = pipeline.process(media_path)
+
+    assert result["source_language"] == "Japanese"
+    assert result["asr_backend"] == "qwen3-asr"
+    assert Path(result["original_srt"]).read_text(encoding="utf-8").count("こんにちは") == 1
+    from_pretrained.assert_called_once()
+
+
 def test_start_translation_resumes_with_overrides(tmp_path, mocker):
     from app.models.subtitle_pipeline import SubtitleJobManager
 

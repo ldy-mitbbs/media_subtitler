@@ -329,15 +329,25 @@ class TestResolveBackend:
         pipeline = SubtitlePipeline(cfg)
         assert pipeline._resolve_backend() == "faster-whisper"
 
-    def test_unsupported_backend_raises(self):
+    def test_explicit_qwen3_asr(self):
         cfg = {
-            "WHISPER_BACKEND": "unknown",
+            "ASR_BACKEND": "qwen3-asr",
             "TRANSLATION_BACKEND": "ollama",
             "TRANSLATION_MODEL": "dummy",
             "TARGET_LANGUAGE": "zh",
         }
         pipeline = SubtitlePipeline(cfg)
-        with pytest.raises(RuntimeError, match="Unsupported WHISPER_BACKEND"):
+        assert pipeline._resolve_backend() == "qwen3-asr"
+
+    def test_unsupported_backend_raises(self):
+        cfg = {
+            "ASR_BACKEND": "unknown",
+            "TRANSLATION_BACKEND": "ollama",
+            "TRANSLATION_MODEL": "dummy",
+            "TARGET_LANGUAGE": "zh",
+        }
+        pipeline = SubtitlePipeline(cfg)
+        with pytest.raises(RuntimeError, match="Unsupported ASR_BACKEND"):
             pipeline._resolve_backend()
 
 
