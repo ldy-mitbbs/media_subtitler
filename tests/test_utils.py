@@ -9,12 +9,14 @@ from app.models.subtitle_pipeline import (
     SubtitleJobManager,
     clean_extracted_subtitle_segments,
     clean_extracted_subtitle_text,
+    detect_video_play_res,
     _dedupe_repeated_segments,
     _is_fatal_http_error,
     format_srt_timestamp,
     language_display_name,
     parse_srt_timestamp,
     read_srt,
+    write_bilingual_ass,
     write_srt,
 )
 from app.routes import _safe_unicode_filename, _supports_json_mode, _adaptive_chunk_size
@@ -89,6 +91,50 @@ class TestExtractedSubtitleCleanup:
         assert [segment["text"] for segment in cleaned] == ["ここです", "先に入れ"]
         assert cleaned[0]["end"] == pytest.approx(53.352)
         assert cleaned[1]["end"] == pytest.approx(55.853)
+
+
+class TestBilingualASS:
+    def test_write_bilingual_ass_uses_custom_play_resolution(self, tmp_path):
+        path = tmp_path / "out.ass"
+        write_bilingual_ass(
+            [
+                {
+                    "start": 1.0,
+                    "end": 2.0,
+                    "source_text": "source",
+                    "target_text": "translation",
+                }
+            ],
+            path,
+            play_res=(1440, 1080),
+        )
+
+        content = path.read_text(encoding="utf-8-sig")
+
+        assert "PlayResX: 1440" in content
+        assert "PlayResY: 1080" in content
+
+    def test_write_bilingual_ass_falls_back_to_default_play_resolution(self, tmp_path):
+        path = tmp_path / "out.ass"
+        write_bilingual_ass([], path, play_res=("bad", 0))
+
+        content = path.read_text(encoding="utf-8-sig")
+
+        assert "PlayResX: 1920" in content
+        assert "PlayResY: 1080" in content
+
+    def test_detect_video_play_res_reads_first_video_stream(self, monkeypatch, tmp_path):
+        class Completed:
+            returncode = 0
+            stdout = '{"streams":[{"width":1440,"height":1080}]}'
+
+        monkeypatch.setattr("app.models.subtitle_pipeline.shutil.which", lambda _: "ffprobe")
+        monkeypatch.setattr(
+            "app.models.subtitle_pipeline.subprocess.run",
+            lambda *args, **kwargs: Completed(),
+        )
+
+        assert detect_video_play_res(tmp_path / "episode.ts") == (1440, 1080)
 
 
 # ------------------------------------------------------------------ dedupe
