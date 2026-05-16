@@ -44,6 +44,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: tests that take >5s or load large models")
     config.addinivalue_line("markers", "ollama: tests that require a running Ollama daemon")
     config.addinivalue_line("markers", "openrouter: tests that require an OpenRouter API key")
+    config.addinivalue_line("markers", "deepseek: tests that require a DeepSeek API key")
     config.addinivalue_line("markers", "unit: fast, isolated unit tests (default)")
 
 

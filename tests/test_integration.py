@@ -9,6 +9,27 @@ from app.models.subtitle_pipeline import SubtitlePipeline, SubtitleJobManager
 
 # ------------------------------------------------------------------ helpers
 
+OLLAMA_TEST_MODEL_CANDIDATES = (
+    "qwen2.5:0.5b",
+    "qwen2.5:1.5b",
+    "llama3.2:1b",
+    "qwen2.5:3b",
+    "qwen2.5:7b",
+    "qwen3.5:9b",
+    "qwen2.5:14b",
+)
+
+
+def _select_ollama_model(available_models, requested_model=None):
+    available = list(available_models or [])
+    if requested_model:
+        return requested_model if requested_model in available else None
+    for candidate in OLLAMA_TEST_MODEL_CANDIDATES:
+        if candidate in available:
+            return candidate
+    return available[0] if available else None
+
+
 def _pipeline(backend, model, **overrides):
     cfg = {
         "MEDIA_DIR": overrides.pop("MEDIA_DIR", "media"),
@@ -22,6 +43,21 @@ def _pipeline(backend, model, **overrides):
     return SubtitlePipeline(cfg)
 
 
+def test_select_ollama_model_honors_requested_model():
+    assert (
+        _select_ollama_model(["qwen2.5:0.5b", "qwen2.5:7b"], "qwen2.5:7b")
+        == "qwen2.5:7b"
+    )
+
+
+def test_select_ollama_model_returns_none_when_requested_model_missing():
+    assert _select_ollama_model(["qwen2.5:0.5b"], "qwen2.5:7b") is None
+
+
+def test_select_ollama_model_prefers_small_ci_friendly_models():
+    assert _select_ollama_model(["qwen3.5:9b", "qwen2.5:0.5b"]) == "qwen2.5:0.5b"
+
+
 # ------------------------------------------------------------------ Ollama integration
 
 @pytest.mark.integration
@@ -29,7 +65,7 @@ def _pipeline(backend, model, **overrides):
 @pytest.mark.slow
 class TestOllamaIntegration:
     """这些测试需要本地运行 Ollama 守护进程，并至少拉取了一个模型。
-    默认使用 qwen3.5:9b（如果可用），否则尝试 qwen2.5:14b。
+    CI 通过 OLLAMA_TEST_MODEL 固定使用小模型，避免下载和冷启动超时。
     """
 
     @pytest.fixture(scope="class")
@@ -42,12 +78,12 @@ class TestOllamaIntegration:
         except Exception as exc:
             pytest.skip(f"Ollama not reachable: {exc}")
 
-        # Prefer smaller/faster models for tests.
-        for candidate in ("qwen3.5:9b", "qwen2.5:14b", "qwen2.5:7b", "llama3.2:3b"):
-            if candidate in models:
-                return candidate
-        if models:
-            return models[0]
+        requested = os.environ.get("OLLAMA_TEST_MODEL")
+        selected = _select_ollama_model(models, requested)
+        if selected:
+            return selected
+        if requested:
+            pytest.skip(f"Requested Ollama test model not found: {requested}")
         pytest.skip("No Ollama models found")
 
     def test_ollama_translate_single_line(self, ollama_model):
@@ -286,7 +322,7 @@ class TestOpenRouterIntegration:
 # ------------------------------------------------------------------ DeepSeek integration
 
 @pytest.mark.integration
-@pytest.mark.openrouter  # reusing marker family since it's a cloud API
+@pytest.mark.deepseek
 class TestDeepSeekIntegration:
     """⚠️ 这些测试会消耗真实的 DeepSeek API Token（按量计费）。
     必须设置 DEEPSEEK_API_KEY 才会运行。
