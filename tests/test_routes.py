@@ -65,15 +65,15 @@ class TestApiEstimate:
             "1\n00:00:00,000 --> 00:00:01,000\nhello\n\n",
             encoding="utf-8",
         )
-        resp = client.get("/api/estimate?selected_file=ep01.mp4")
+        resp = client.get(f"/api/estimate?local_path={media}")
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
         assert data["tokens"]["source"] == "orig_srt"
         assert data["tokens"]["segment_count"] == 1
 
-    def test_estimate_invalid_path_traversal(self, client):
-        resp = client.get("/api/estimate?selected_file=../../../etc/passwd")
+    def test_estimate_requires_absolute_local_path(self, client):
+        resp = client.get("/api/estimate?local_path=ep01.mp4")
         assert resp.status_code == 400
 
 
@@ -82,11 +82,12 @@ class TestApiJobs:
         resp = client.post("/api/jobs")
         assert resp.status_code == 400
 
-    def test_create_job_with_selected_file(self, client, tmp_path):
-        (tmp_path / "ep01.mkv").write_text("fake")
+    def test_create_job_with_local_path(self, client, tmp_path):
+        media = tmp_path / "ep01.mkv"
+        media.write_text("fake")
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+            data={"local_path": str(media), "mode": "transcribe"},
         )
         data = resp.get_json()
         assert resp.status_code == 200
@@ -95,27 +96,29 @@ class TestApiJobs:
 
     def test_create_job_translate_only_without_orig_srt_returns_400(self, client, tmp_path):
         (tmp_path / "ep01.mkv").write_text("fake")
+        media = tmp_path / "ep01.mkv"
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "translate"},
+            data={"local_path": str(media), "mode": "translate"},
         )
         assert resp.status_code == 400
 
     def test_create_job_translate_only_with_orig_srt(self, client, tmp_path):
-        (tmp_path / "ep01.mkv").write_text("fake")
+        media = tmp_path / "ep01.mkv"
+        media.write_text("fake")
         (tmp_path / "ep01.orig.srt").write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nhi\n\n",
             encoding="utf-8",
         )
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "translate"},
+            data={"local_path": str(media), "mode": "translate"},
         )
         data = resp.get_json()
         assert resp.status_code == 200
         assert data["success"] is True
 
-    def test_create_job_with_upload(self, client, tmp_path):
+    def test_create_job_rejects_upload_without_local_path(self, client, tmp_path):
         import io
         resp = client.post(
             "/api/jobs",
@@ -126,9 +129,9 @@ class TestApiJobs:
             content_type="multipart/form-data",
         )
         data = resp.get_json()
-        assert resp.status_code == 200
-        assert data["success"] is True
-        assert (tmp_path / "uploads" / "test_vid.mkv").exists()
+        assert resp.status_code == 400
+        assert data["success"] is False
+        assert not (tmp_path / "uploads" / "test_vid.mkv").exists()
 
     def test_job_status_not_found(self, client):
         resp = client.get("/api/jobs/no-such-id")
@@ -162,7 +165,7 @@ class TestApiTranslateJob:
         )
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+            data={"local_path": str(media), "mode": "transcribe"},
         )
         job_id = resp.get_json()["job_id"]
 
@@ -213,8 +216,8 @@ class TestApiOpenRouter:
         assert "pricing" in data
 
 
-class TestSafeFilenameRoute:
-    def test_upload_cjk_filename(self, client, tmp_path):
+class TestLocalPathOnlyJobs:
+    def test_upload_cjk_filename_is_not_accepted(self, client, tmp_path):
         import io
         resp = client.post(
             "/api/jobs",
@@ -225,19 +228,14 @@ class TestSafeFilenameRoute:
             content_type="multipart/form-data",
         )
         data = resp.get_json()
-        assert resp.status_code == 200
-        assert data["success"] is True
-        assert (tmp_path / "uploads" / "さすらい署長.mkv").exists()
+        assert resp.status_code == 400
+        assert data["success"] is False
+        assert not (tmp_path / "uploads" / "さすらい署長.mkv").exists()
 
-    def test_upload_bad_filename_returns_400(self, client):
-        import io
+    def test_relative_local_path_returns_400(self, client):
         resp = client.post(
             "/api/jobs",
-            data={
-                "media_file": (io.BytesIO(b"fake"), ""),
-                "mode": "transcribe",
-            },
-            content_type="multipart/form-data",
+            data={"local_path": "episode.mkv", "mode": "transcribe"},
         )
         assert resp.status_code == 400
 
@@ -350,7 +348,6 @@ class TestOpenJobMedia:
         cmd = mock_popen.call_args.args[0]
         assert cmd[0] == "/opt/homebrew/bin/mpv"
         assert "--sub-auto=no" in cmd
-        assert "--sub-ass-override=strip" in cmd
         assert f"--sub-file={bilingual}" in cmd
 
     def test_open_existing_media_rejects_invalid_path(self, client):
@@ -370,7 +367,7 @@ class TestOpenJobMedia:
         mocker.patch.object(SubtitlePipeline, "process")
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+            data={"local_path": str(video), "mode": "transcribe"},
         )
         job_id = resp.get_json()["job_id"]
 
@@ -399,7 +396,7 @@ class TestOpenJobMedia:
         mocker.patch.object(SubtitlePipeline, "process")
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+            data={"local_path": str(video), "mode": "transcribe"},
         )
         job_id = resp.get_json()["job_id"]
 
@@ -410,11 +407,6 @@ class TestOpenJobMedia:
         cmd = mock_popen.call_args.args[0]
         assert cmd[0] == "/opt/homebrew/bin/mpv"
         assert "--sub-auto=no" in cmd
-        assert "--sub-ass-override=strip" in cmd
-        assert "--sub-font=Noto Sans CJK SC" in cmd
-        assert "--sub-font-size=34" in cmd
-        assert "--sub-bold=no" in cmd
-        assert "--sub-border-size=2" in cmd
         assert f"--sub-file={bilingual}" in cmd
 
     def test_open_job_media_job_not_found(self, client):
@@ -429,7 +421,7 @@ class TestOpenJobMedia:
         mocker.patch.object(SubtitlePipeline, "process")
         resp = client.post(
             "/api/jobs",
-            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+            data={"local_path": str(video), "mode": "transcribe"},
         )
         job_id = resp.get_json()["job_id"]
 

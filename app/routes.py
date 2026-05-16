@@ -167,6 +167,21 @@ def _media_dir():
     return Path(current_app.config["MEDIA_DIR"]).resolve()
 
 
+def _resolve_local_media_path(raw_path):
+    raw_path = (raw_path or "").strip()
+    if not raw_path:
+        return None, "Local path is required"
+
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        return None, "Local path must be absolute"
+
+    candidate = candidate.resolve()
+    if not candidate.exists() or not candidate.is_file():
+        return None, "Local file does not exist"
+    return candidate, None
+
+
 def _resolve_media_path(filename):
     media_dir = _media_dir()
     target = (media_dir / filename).resolve()
@@ -182,8 +197,10 @@ def _resolve_media_path(filename):
 def _find_sidecar_subtitle(media_path, result=None):
     result = result or {}
     subtitle_candidates = [
+        result.get("bilingual_ass"),
         result.get("bilingual_srt"),
         result.get("original_srt"),
+        str(media_path.with_suffix(".bilingual.ass")),
         str(media_path.with_suffix(".bilingual.srt")),
         str(media_path.with_suffix(".orig.srt")),
     ]
@@ -201,15 +218,7 @@ def _open_media_with_player(media_path, subtitle_path=None):
 
     mpv_path = shutil.which("mpv")
     if sys.platform == "darwin" and mpv_path:
-        cmd = [
-            mpv_path,
-            "--sub-auto=no",
-            "--sub-ass-override=strip",
-            "--sub-font-size=34",
-            "--sub-font=Noto Sans CJK SC",
-            "--sub-bold=no",
-            "--sub-border-size=2",
-        ]
+        cmd = [mpv_path, "--sub-auto=no"]
         if subtitle_path:
             cmd.append(f"--sub-file={subtitle_path}")
         cmd.append(str(media_path))
@@ -488,13 +497,13 @@ def openrouter_models():
 def estimate_job_cost():
     """Pre-run token + cost estimate for a media file or pending job.
 
-    Query params (one of selected_file or job_id required):
-      selected_file: path under MEDIA_DIR
+    Query params (one of local_path or job_id required):
+      local_path: absolute path to a local media file
       job_id: estimate using the media_path of an existing job
       translation_model: override OpenRouter model slug
       chunk_size: override translation chunk size
     """
-    selected = (request.args.get("selected_file") or "").strip()
+    local_path = (request.args.get("local_path") or "").strip()
     job_id = (request.args.get("job_id") or "").strip()
 
     if job_id:
@@ -507,17 +516,12 @@ def estimate_job_cost():
             return jsonify({"success": False, "message": "Job media missing"}), 404
         selected_label = candidate.name
     else:
-        if not selected:
-            return jsonify({"success": False, "message": "selected_file or job_id required"}), 400
-        media_dir = _media_dir()
-        candidate = (media_dir / selected).resolve()
-        try:
-            candidate.relative_to(media_dir)
-        except ValueError:
-            return jsonify({"success": False, "message": "Invalid selected file"}), 400
-        if not candidate.exists() or not candidate.is_file():
-            return jsonify({"success": False, "message": "File not found"}), 404
-        selected_label = selected
+        if not local_path:
+            return jsonify({"success": False, "message": "local_path or job_id required"}), 400
+        candidate, error = _resolve_local_media_path(local_path)
+        if error:
+            return jsonify({"success": False, "message": error}), 400
+        selected_label = candidate.name
 
     cfg = current_app.config
     chunk_size = int(
@@ -556,8 +560,7 @@ def estimate_job_cost():
 @main_bp.route("/api/jobs", methods=["POST"])
 def create_job():
     manager = get_subtitle_manager()
-    upload = request.files.get("media_file")
-    selected_file = (request.form.get("selected_file") or "").strip()
+    local_path = (request.form.get("local_path") or "").strip()
     source_language = (request.form.get("source_language") or "").strip().lower() or None
     target_language = (request.form.get("target_language") or "").strip().lower() or None
     asr_model = (
@@ -578,34 +581,9 @@ def create_job():
     stop_after_transcription = mode == "transcribe"
     skip_transcription = mode == "translate"
 
-    media_dir = _media_dir()
-    media_dir.mkdir(parents=True, exist_ok=True)
-
-    media_path = None
-    if upload and upload.filename:
-        safe_name = _safe_unicode_filename(upload.filename)
-        if not safe_name:
-            return jsonify({"success": False, "message": "Invalid file name"}), 400
-        upload_dir = media_dir / "uploads"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        media_path = upload_dir / safe_name
-        upload.save(str(media_path))
-    elif selected_file:
-        candidate = (media_dir / selected_file).resolve()
-        try:
-            candidate.relative_to(media_dir)
-        except ValueError:
-            return jsonify({"success": False, "message": "Invalid selected file"}), 400
-        if not candidate.exists() or not candidate.is_file():
-            return jsonify({"success": False, "message": "Selected file does not exist"}), 400
-        media_path = candidate
-    else:
-        return (
-            jsonify(
-                {"success": False, "message": "Please upload a file or choose an existing media file"}
-            ),
-            400,
-        )
+    media_path, error = _resolve_local_media_path(local_path)
+    if error:
+        return jsonify({"success": False, "message": error}), 400
 
     if skip_transcription:
         existing_srt = media_path.with_suffix(".orig.srt")
@@ -706,10 +684,11 @@ def job_status(job_id):
     media_path = job.get("media_path")
     media_file = None
     if media_path:
+        media_path_obj = Path(media_path)
         try:
-            media_file = str(Path(media_path).relative_to(_media_dir()))
+            media_file = str(media_path_obj.relative_to(_media_dir()))
         except ValueError:
-            media_file = None
+            media_file = media_path_obj.name
 
     return jsonify(
         {
@@ -745,7 +724,11 @@ def job_download(job_id, output_kind):
     if not job or not job.get("result"):
         return jsonify({"success": False, "message": "Output not ready"}), 404
 
-    key_map = {"original": "original_srt", "bilingual": "bilingual_srt"}
+    key_map = {
+        "original": "original_srt",
+        "bilingual": "bilingual_srt",
+        "styled": "bilingual_ass",
+    }
     output_key = key_map.get(output_kind)
     if not output_key:
         return jsonify({"success": False, "message": "Invalid output kind"}), 400
@@ -758,7 +741,7 @@ def job_download(job_id, output_kind):
         output_path.parent,
         output_path.name,
         as_attachment=True,
-        mimetype="application/x-subrip",
+        mimetype="text/x-ssa" if output_path.suffix == ".ass" else "application/x-subrip",
     )
 
 

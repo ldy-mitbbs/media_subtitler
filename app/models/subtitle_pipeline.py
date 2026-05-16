@@ -139,6 +139,21 @@ def format_srt_timestamp(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
+def format_ass_timestamp(seconds):
+    total_cs = max(0, int(seconds * 100))
+    hours = total_cs // 360000
+    minutes = (total_cs % 360000) // 6000
+    secs = (total_cs % 6000) // 100
+    centis = total_cs % 100
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
+
+def escape_ass_text(text):
+    text = (text or "").strip()
+    text = text.replace("{", "｛").replace("}", "｝")
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", r"\N")
+
+
 def _truncate(text, limit):
     text = (text or "").replace("\n", " ").strip()
     if len(text) <= limit:
@@ -209,6 +224,50 @@ def write_srt(segments, output_path):
                 f"{format_srt_timestamp(segment['start'])} --> {format_srt_timestamp(segment['end'])}\n"
             )
             f.write(f"{segment['text'].strip()}\n\n")
+
+
+def write_bilingual_ass(segments, output_path):
+    header = """[Script Info]
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Source,Hiragino Sans,44,&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,96,96,12,1
+Style: Translation,PingFang SC,50,&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,96,96,12,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    with open(output_path, "w", encoding="utf-8-sig") as f:
+        f.write(header)
+        for segment in segments:
+            start = format_ass_timestamp(segment["start"])
+            end = format_ass_timestamp(segment["end"])
+            source = (segment.get("source_text") or "").strip()
+            translation = (segment.get("target_text") or "").strip()
+
+            if not source:
+                lines = [line.strip() for line in segment.get("text", "").splitlines()]
+                lines = [line for line in lines if line]
+                if not lines:
+                    continue
+                source = lines[0]
+                if not translation and len(lines) > 1:
+                    translation = "\n".join(lines[1:])
+
+            if not source:
+                continue
+            source_text = r"{\rSource}" + escape_ass_text(source)
+            if translation:
+                translation_text = r"{\rTranslation}" + escape_ass_text(translation)
+                text = source_text + r"\N" + translation_text
+            else:
+                text = source_text
+            f.write(f"Dialogue: 0,{start},{end},Source,,0,0,0,,{text}\n")
 
 
 def parse_srt_timestamp(value):
@@ -479,6 +538,7 @@ class SubtitlePipeline:
                 "segment_count": len(segments),
                 "original_srt": str(original_srt),
                 "bilingual_srt": None,
+                "bilingual_ass": None,
                 "translation_model": None,
                 "translation_backend": None,
                 "asr_model": self.asr_model_name,
@@ -506,7 +566,9 @@ class SubtitlePipeline:
         # doesn't leak into a later call.
         self._active_cancel_event = None
         bilingual_srt = media_path.with_suffix(".bilingual.srt")
+        bilingual_ass = media_path.with_suffix(".bilingual.ass")
         write_srt(bilingual_segments, bilingual_srt)
+        write_bilingual_ass(bilingual_segments, bilingual_ass)
 
         result = {
             "source_language": source_language,
@@ -514,6 +576,7 @@ class SubtitlePipeline:
             "segment_count": len(segments),
             "original_srt": str(original_srt),
             "bilingual_srt": str(bilingual_srt),
+            "bilingual_ass": str(bilingual_ass),
             "translation_model": self.translation_model,
             "translation_backend": self.translation_backend,
             "asr_model": self.asr_model_name,
@@ -1617,6 +1680,8 @@ class SubtitlePipeline:
                     {
                         "start": original["start"],
                         "end": original["end"],
+                        "source_text": src,
+                        "target_text": target_text,
                         "text": f"{src}\n{target_text}",
                     }
                 )
