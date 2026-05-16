@@ -61,7 +61,7 @@
       const res = await fetch('/api/config');
       const cfg = await res.json();
       cachedConfig = cfg;
-      const w = cfg.whisper || {};
+      const w = cfg.asr || cfg.whisper || {};
       const t = cfg.translation || {};
       if (whisperBackendSelect) whisperBackendSelect.value = '';
       if (translationBackendSelect) translationBackendSelect.value = '';
@@ -97,15 +97,17 @@
       if (settingOpenrouterAppTitle) settingOpenrouterAppTitle.value = s.openrouter_app_title || '';
       if (settingDeepseekUrl) settingDeepseekUrl.value = s.deepseek_base_url || '';
       if (settingDeepseekApiKey) settingDeepseekApiKey.value = s.deepseek_api_key || '';
-      if (settingWhisperBackend) settingWhisperBackend.value = s.whisper_backend || '';
-      if (settingWhisperModel) settingWhisperModel.value = s.whisper_model || '';
+      const savedAsrBackend = s.asr_backend || s.whisper_backend || '';
+      const savedAsrModel = s.asr_model || s.whisper_model || '';
+      if (settingWhisperBackend) settingWhisperBackend.value = savedAsrBackend;
+      if (settingWhisperModel) settingWhisperModel.value = savedAsrModel;
       if (settingTranslationBackend) settingTranslationBackend.value = s.translation_backend || '';
       if (settingTranslationModel) settingTranslationModel.value = s.translation_model || '';
       if (settingTargetLanguage) settingTargetLanguage.value = s.target_language || '';
 
       // Also update the main job form defaults so they reflect saved settings.
-      if (whisperBackendSelect && s.whisper_backend) {
-        whisperBackendSelect.value = s.whisper_backend;
+      if (whisperBackendSelect && savedAsrBackend) {
+        whisperBackendSelect.value = savedAsrBackend;
       }
       if (gpuBaseUrlInput && s.gpu_base_url) {
         gpuBaseUrlInput.value = s.gpu_base_url;
@@ -117,8 +119,8 @@
       if (targetLangSelect && s.target_language) {
         targetLangSelect.value = s.target_language;
       }
-      if (whisperModelInput && s.whisper_model) {
-        whisperModelInput.placeholder = `（使用默认：${s.whisper_model}）`;
+      if (whisperModelInput && savedAsrModel) {
+        whisperModelInput.placeholder = `（使用默认：${savedAsrModel}）`;
       }
       if (translationModelInput && s.translation_model) {
         translationModelInput.placeholder = `（使用默认：${s.translation_model}）`;
@@ -145,8 +147,8 @@
         OPENROUTER_APP_TITLE: settingOpenrouterAppTitle ? settingOpenrouterAppTitle.value.trim() : '',
         DEEPSEEK_BASE_URL: settingDeepseekUrl ? settingDeepseekUrl.value.trim() : '',
         DEEPSEEK_API_KEY: settingDeepseekApiKey ? settingDeepseekApiKey.value.trim() : '',
-        WHISPER_BACKEND: settingWhisperBackend ? settingWhisperBackend.value.trim() : '',
-        WHISPER_MODEL: settingWhisperModel ? settingWhisperModel.value.trim() : '',
+        ASR_BACKEND: settingWhisperBackend ? settingWhisperBackend.value.trim() : '',
+        ASR_MODEL: settingWhisperModel ? settingWhisperModel.value.trim() : '',
         TRANSLATION_BACKEND: settingTranslationBackend ? settingTranslationBackend.value.trim() : '',
         TRANSLATION_MODEL: settingTranslationModel ? settingTranslationModel.value.trim() : '',
         TARGET_LANGUAGE: settingTargetLanguage ? settingTargetLanguage.value.trim() : '',
@@ -166,8 +168,8 @@
         // Update local cachedSettings
         cachedSettings = { ...cachedSettings, ...payload };
         // Refresh defaults display
-        if (whisperDefaultsEl && payload.WHISPER_MODEL) {
-          whisperDefaultsEl.textContent = `（默认：${payload.WHISPER_MODEL} 通过 ${payload.WHISPER_BACKEND || '?'}）`;
+        if (whisperDefaultsEl && payload.ASR_MODEL) {
+          whisperDefaultsEl.textContent = `（默认：${payload.ASR_MODEL} 通过 ${payload.ASR_BACKEND || '?'}）`;
         }
         if (translationDefaultsEl && payload.TRANSLATION_MODEL) {
           translationDefaultsEl.textContent = `（默认：${payload.TRANSLATION_MODEL} 通过 ${payload.TRANSLATION_BACKEND || '?'}）`;
@@ -369,7 +371,7 @@
   function updateGpuHint() {
     if (!gpuUrlHintEl || !gpuBaseUrlInput) return;
     const base = gpuBaseUrlInput.value.trim().replace(/\/+$/, '').replace(/:+$/, '');
-    gpuUrlHintEl.textContent = base ? `Whisper: ${base}:5051 · Ollama: ${base}:11434` : '';
+    gpuUrlHintEl.textContent = base ? `Remote ASR: ${base}:5051 · Ollama: ${base}:11434` : '';
   }
 
   function computeAdaptiveChunkSize() {
@@ -491,10 +493,10 @@
 
   function appendModelOverrides(fd) {
     if (whisperBackendSelect && whisperBackendSelect.value) {
-      fd.append('whisper_backend', whisperBackendSelect.value);
+      fd.append('asr_backend', whisperBackendSelect.value);
     }
     if (whisperModelInput && whisperModelInput.value.trim()) {
-      fd.append('whisper_model', whisperModelInput.value.trim());
+      fd.append('asr_model', whisperModelInput.value.trim());
     }
     if (gpuBaseUrlInput && gpuBaseUrlInput.value.trim()) {
       fd.append('gpu_base_url', gpuBaseUrlInput.value.trim());
@@ -633,7 +635,7 @@
       const r = status.result;
       const usage = r.usage || {};
       const lines = [];
-      lines.push(`Whisper：${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
+      lines.push(`语音识别：${r.asr_model || r.whisper_model || '?'} (${r.asr_backend || r.whisper_backend || '?'})`);
       lines.push(
         `翻译：${r.translation_model || '?'} (${r.translation_backend || '?'})`
       );
@@ -692,7 +694,7 @@
     const summary = document.createElement('div');
     summary.className = 'job-summary';
     const lines = [];
-    lines.push(`Whisper：${r.whisper_model || '?'} (${r.whisper_backend || '?'})`);
+    lines.push(`语音识别：${r.asr_model || r.whisper_model || '?'} (${r.asr_backend || r.whisper_backend || '?'})`);
     lines.push(`检测到的源语言：${r.source_language || '未知'}`);
     if (r.segment_count) lines.push(`已识别 ${r.segment_count} 行字幕`);
     summary.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
