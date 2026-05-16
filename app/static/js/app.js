@@ -1,6 +1,7 @@
 (() => {
   const mediaSelect = document.getElementById('media-file');
   const refreshBtn = document.getElementById('refresh-media');
+  const playExistingBtn = document.getElementById('play-existing');
   const startExistingBtn = document.getElementById('start-existing');
   const uploadInput = document.getElementById('upload-input');
   const startUploadBtn = document.getElementById('start-upload');
@@ -945,6 +946,38 @@
     await submitJob(fd, selected);
   }
 
+  async function playExistingMedia() {
+    const selected = mediaSelect.value;
+    if (!selected) {
+      alert('请选择一个媒体文件');
+      return;
+    }
+    const prevText = playExistingBtn ? playExistingBtn.textContent : '';
+    if (playExistingBtn) {
+      playExistingBtn.disabled = true;
+      playExistingBtn.textContent = '打开中...';
+    }
+    try {
+      const fd = new FormData();
+      fd.append('selected_file', selected);
+      const res = await fetch('/api/media/open', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(data.message || '无法打开视频');
+      }
+    } catch (err) {
+      alert(`打开视频失败：${err}`);
+    } finally {
+      if (playExistingBtn) {
+        playExistingBtn.disabled = false;
+        playExistingBtn.textContent = prevText;
+      }
+    }
+  }
+
   async function startUploadJob() {
     const file = uploadInput.files && uploadInput.files[0];
     if (!file) {
@@ -994,6 +1027,9 @@
   }
 
   refreshBtn.addEventListener('click', refreshMedia);
+  if (playExistingBtn) {
+    playExistingBtn.addEventListener('click', playExistingMedia);
+  }
   startExistingBtn.addEventListener('click', withSubmitGuard(startExistingBtn, startExistingJob));
   startUploadBtn.addEventListener('click', withSubmitGuard(startUploadBtn, startUploadJob));
   if (translationModelInput) {
