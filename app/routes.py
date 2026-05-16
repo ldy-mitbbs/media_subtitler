@@ -690,7 +690,11 @@ def job_download(job_id, output_kind):
     if not job or not job.get("result"):
         return jsonify({"success": False, "message": "Output not ready"}), 404
 
-    key_map = {"original": "original_srt", "bilingual": "bilingual_srt"}
+    key_map = {
+        "original": "original_srt",
+        "bilingual": "bilingual_srt",
+        "styled": "bilingual_ass",
+    }
     output_key = key_map.get(output_kind)
     if not output_key:
         return jsonify({"success": False, "message": "Invalid output kind"}), 400
@@ -703,7 +707,7 @@ def job_download(job_id, output_kind):
         output_path.parent,
         output_path.name,
         as_attachment=True,
-        mimetype="application/x-subrip",
+        mimetype="text/x-ssa" if output_path.suffix == ".ass" else "application/x-subrip",
     )
 
 

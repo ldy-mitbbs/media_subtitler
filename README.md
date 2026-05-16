@@ -16,10 +16,11 @@
   - `ollama` — 本地 `/api/chat` 端点。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
-- **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写 SRT。
+- **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写字幕。
 - **输出**：
   - `<media>.orig.srt` — 源语言字幕。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
+  - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
 - **Web UI**：小型 Flask 界面，支持上传、进度跟踪、下载。

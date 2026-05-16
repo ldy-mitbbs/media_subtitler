@@ -204,21 +204,26 @@ def main():
 
     original_srt = Path(result["original_srt"])
     bilingual_srt = Path(result["bilingual_srt"])
+    bilingual_ass = Path(result["bilingual_ass"])
 
     if args.output_dir:
         out_dir = Path(args.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         target_original = out_dir / original_srt.name
         target_bilingual = out_dir / bilingual_srt.name
+        target_bilingual_ass = out_dir / bilingual_ass.name
         shutil.copy2(original_srt, target_original)
         shutil.copy2(bilingual_srt, target_bilingual)
+        shutil.copy2(bilingual_ass, target_bilingual_ass)
         original_srt = target_original
         bilingual_srt = target_bilingual
+        bilingual_ass = target_bilingual_ass
 
     print(f"Source language: {result['source_language']}")
     print(f"Segments: {result['segment_count']}")
     print(f"Original SRT: {original_srt}")
     print(f"Bilingual SRT: {bilingual_srt}")
+    print(f"Styled bilingual ASS: {bilingual_ass}")
     return 0
 
 
