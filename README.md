@@ -11,19 +11,21 @@
 ## 功能
 
 - **Whisper 语音转文字**：支持 `faster-whisper`、远程 GPU `faster-whisper`、`whisper.cpp`（Apple Silicon 上自动选用后者）和 OpenAI Whisper API。
+- **优先复用已有字幕**：视频内嵌字幕或同目录外挂字幕可直接提取/复用后翻译；没有可用字幕时才进行语音识别。
 - **自动语言识别**：支持 Whisper 能识别的任意源语言。
 - **多翻译后端**：
   - `ollama` — 本地 `/api/chat` 端点。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
+- **Qwen3-ASR 可选后端**：可安装额外依赖后使用本地 Qwen3-ASR 做语音识别。
 - **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写字幕。
 - **输出**：
   - `<media>.orig.srt` — 源语言字幕。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
-  - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色）。
+  - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色，并按视频画面比例设置布局）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
-- **Web UI**：小型 Flask 界面，支持上传、进度跟踪、下载。
+- **Web UI**：小型 Flask 界面，支持本地文件选择、进度跟踪、下载、播放视频和 macOS Finder 右键启动任务。
 
 ## 安装
 
@@ -179,6 +181,8 @@ python run.py --port 5050
 
 打开 http://localhost:5050。在「本地文件路径」输入视频的绝对路径，程序会直接处理源文件，并把 `.orig.srt`、`.bilingual.srt`、`.bilingual.ass` 写在视频旁边。
 
+也可以点击「选择文件」使用系统文件选择器；任务完成后，Web UI 会提供原始字幕、双语 SRT、双语 ASS 的下载入口，并可尝试用系统默认播放器直接打开视频和字幕。
+
 macOS Finder 右键启动任务：
 
 ```bash
@@ -199,11 +203,11 @@ Windows:
 
 <img src="docs/screenshots/settings.png" width="800">
 
-**新建任务** — 输入本地媒体文件路径，选择源语言、目标语言（中文/英文）、Whisper 后端和翻译后端：
+**新建任务** — 输入或选择本地媒体文件，选择源语言、处理方式、目标语言、语音识别后端和翻译后端：
 
 <img src="docs/screenshots/new-job.png" width="800">
 
-**任务完成** — 实时显示语音识别 + 翻译进度，完成后可下载原始字幕、双语字幕，或一键播放视频：
+**任务完成** — 实时显示语音识别 / 字幕提取 + 翻译进度，完成后可下载原始字幕、双语字幕和 ASS 字幕，或一键播放视频：
 
 <img src="docs/screenshots/job-complete.png" width="800">
 
@@ -238,7 +242,7 @@ drama_subtitler/
 
 ## 法律声明 / 免责声明
 
-`drama_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他技术保护措施。
+`drama_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT / ASS）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他技术保护措施。
 
 你在使用本工具时完全对自己的行为负责。
 
