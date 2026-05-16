@@ -226,13 +226,77 @@ def write_srt(segments, output_path):
             f.write(f"{segment['text'].strip()}\n\n")
 
 
-def write_bilingual_ass(segments, output_path):
-    header = """[Script Info]
+DEFAULT_ASS_PLAY_RES = (1920, 1080)
+
+
+def _normalize_ass_play_res(play_res=None):
+    if not play_res:
+        return DEFAULT_ASS_PLAY_RES
+    try:
+        width, height = play_res
+        width = int(width)
+        height = int(height)
+    except (TypeError, ValueError):
+        return DEFAULT_ASS_PLAY_RES
+    if width <= 0 or height <= 0:
+        return DEFAULT_ASS_PLAY_RES
+    return width, height
+
+
+def detect_video_play_res(media_path):
+    ffprobe_path = shutil.which("ffprobe")
+    if not ffprobe_path:
+        return DEFAULT_ASS_PLAY_RES
+
+    cmd = [
+        ffprobe_path,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        str(media_path),
+    ]
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return DEFAULT_ASS_PLAY_RES
+    if completed.returncode != 0:
+        return DEFAULT_ASS_PLAY_RES
+
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return DEFAULT_ASS_PLAY_RES
+
+    for stream in payload.get("streams", []):
+        play_res = _normalize_ass_play_res(
+            (stream.get("width"), stream.get("height"))
+        )
+        if play_res != DEFAULT_ASS_PLAY_RES:
+            return play_res
+        if stream.get("width") and stream.get("height"):
+            return play_res
+    return DEFAULT_ASS_PLAY_RES
+
+
+def write_bilingual_ass(segments, output_path, play_res=None):
+    play_res_x, play_res_y = _normalize_ass_play_res(play_res)
+    header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 0
 ScaledBorderAndShadow: yes
-PlayResX: 1920
-PlayResY: 1080
+PlayResX: {play_res_x}
+PlayResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -568,7 +632,11 @@ class SubtitlePipeline:
         bilingual_srt = media_path.with_suffix(".bilingual.srt")
         bilingual_ass = media_path.with_suffix(".bilingual.ass")
         write_srt(bilingual_segments, bilingual_srt)
-        write_bilingual_ass(bilingual_segments, bilingual_ass)
+        write_bilingual_ass(
+            bilingual_segments,
+            bilingual_ass,
+            play_res=detect_video_play_res(media_path),
+        )
 
         result = {
             "source_language": source_language,
