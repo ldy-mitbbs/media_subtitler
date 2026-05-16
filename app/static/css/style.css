@@ -48,6 +48,27 @@ main {
   font-size: 1.05rem;
   color: var(--text);
 }
+.card-note {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.shortcut-card {
+  display: grid;
+  gap: 14px;
+}
+.shortcut-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.status-text {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.status-text.success { color: var(--good); }
+.status-text.error { color: var(--bad); }
 
 .form-row {
   display: grid;

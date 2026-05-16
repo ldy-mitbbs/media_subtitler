@@ -16,6 +16,8 @@
   const estimateHintEl = document.getElementById('estimate-hint');
   const jobsEl = document.getElementById('jobs');
   const chunkSizeInput = document.getElementById('translation-chunk-size');
+  const installFinderShortcutBtn = document.getElementById('install-finder-shortcut');
+  const finderShortcutStatusEl = document.getElementById('finder-shortcut-status');
   let chunkSizeUserOverride = false;
   if (chunkSizeInput) {
     chunkSizeInput.addEventListener('input', () => { chunkSizeUserOverride = true; });
@@ -53,6 +55,54 @@
   };
 
   const trackedJobs = new Map(); // job_id -> { el, polling }
+
+  function setFinderShortcutStatus(message, kind = '') {
+    if (!finderShortcutStatusEl) return;
+    finderShortcutStatusEl.textContent = message || '';
+    finderShortcutStatusEl.className = `status-text${kind ? ` ${kind}` : ''}`;
+  }
+
+  async function refreshFinderShortcutStatus() {
+    if (!installFinderShortcutBtn || !finderShortcutStatusEl) return;
+    try {
+      const res = await fetch('/api/finder-shortcut');
+      const data = await res.json();
+      if (!data.supported) {
+        installFinderShortcutBtn.disabled = true;
+        setFinderShortcutStatus('仅 macOS Finder 可用', 'error');
+        return;
+      }
+      if (data.installed) {
+        setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Drama Subtitler Start Job', 'success');
+      } else {
+        setFinderShortcutStatus('未安装');
+      }
+    } catch (err) {
+      setFinderShortcutStatus('无法读取 Finder 入口状态', 'error');
+    }
+  }
+
+  async function installFinderShortcut() {
+    if (!installFinderShortcutBtn || installFinderShortcutBtn.disabled) return;
+    const prevText = installFinderShortcutBtn.textContent;
+    installFinderShortcutBtn.disabled = true;
+    installFinderShortcutBtn.textContent = '安装中...';
+    setFinderShortcutStatus('正在安装 Finder 入口...');
+    try {
+      const res = await fetch('/api/finder-shortcut', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        setFinderShortcutStatus(data.message || '安装失败', 'error');
+        return;
+      }
+      setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Drama Subtitler Start Job', 'success');
+    } catch (err) {
+      setFinderShortcutStatus(`安装失败：${err}`, 'error');
+    } finally {
+      installFinderShortcutBtn.disabled = false;
+      installFinderShortcutBtn.textContent = prevText;
+    }
+  }
 
   async function loadConfig() {
     try {
@@ -533,6 +583,7 @@
     `;
     el.querySelector('.name').textContent = label;
     jobsEl.prepend(el);
+    trackedJobs.set(jobId, { el, polling: false });
     return el;
   }
 
@@ -547,8 +598,9 @@
     el.classList.remove('completed', 'failed', 'running', 'awaiting_translation');
     el.classList.add(status.status || 'running');
 
+    const shortJobId = status.job_id ? status.job_id.slice(0, 8) : '';
     el.querySelector('.meta').textContent =
-      `${STATUS_LABELS[status.status] || status.status || '运行中'} · ${status.progress || 0}% · ${status.message || ''}`;
+      `任务 ${shortJobId} · ${STATUS_LABELS[status.status] || status.status || '运行中'} · ${status.progress || 0}% · ${status.message || ''}`;
     el.querySelector('.bar > div').style.width = `${status.progress || 0}%`;
 
     const errEl = el.querySelector('.error');
@@ -904,6 +956,58 @@
     }
   }
 
+  function trackJobStatus(status) {
+    if (!status || !status.job_id || !jobsEl) return;
+    const existing = trackedJobs.get(status.job_id);
+    if (existing) {
+      updateJobCard(existing.el, status);
+      if (!existing.polling && status.status !== 'completed' && status.status !== 'failed') {
+        existing.polling = true;
+        pollJob(status.job_id, existing.el).finally(() => { existing.polling = false; });
+      }
+      return;
+    }
+
+    const label = status.media_file || (status.media_path || '').split(/[\\/]/).pop() || status.job_id;
+    const card = createJobCard(status.job_id, label);
+    updateJobCard(card, status);
+    const entry = trackedJobs.get(status.job_id);
+    if (entry && status.status !== 'completed' && status.status !== 'failed') {
+      entry.polling = true;
+      pollJob(status.job_id, card).finally(() => { entry.polling = false; });
+    }
+  }
+
+  async function refreshJobs() {
+    if (!jobsEl) return;
+    try {
+      const res = await fetch('/api/jobs');
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.jobs)) return;
+
+      const visibleJobs = data.jobs.slice()
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      const visibleIds = new Set(visibleJobs.map(status => status.job_id));
+      const seenRendered = new Set();
+      for (const el of Array.from(jobsEl.querySelectorAll('.job'))) {
+        const jobId = el.dataset.jobId;
+        if (!visibleIds.has(jobId) || seenRendered.has(jobId)) {
+          const entry = trackedJobs.get(el.dataset.jobId);
+          if (entry && entry.el === el) trackedJobs.delete(el.dataset.jobId);
+          el.remove();
+          continue;
+        }
+        seenRendered.add(jobId);
+      }
+
+      for (const status of visibleJobs.slice().reverse()) {
+        trackJobStatus(status);
+      }
+    } catch (err) {
+      // non-fatal; individual job polling will keep trying.
+    }
+  }
+
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   async function startLocalJob() {
@@ -961,7 +1065,12 @@
       return;
     }
     const card = createJobCard(data.job_id, label);
-    pollJob(data.job_id, card);
+    const entry = trackedJobs.get(data.job_id);
+    if (entry) entry.polling = true;
+    pollJob(data.job_id, card).finally(() => {
+      const latest = trackedJobs.get(data.job_id);
+      if (latest) latest.polling = false;
+    });
     refreshEstimate();
   }
 
@@ -1012,9 +1121,15 @@
   if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', saveSettings);
   }
+  if (installFinderShortcutBtn) {
+    installFinderShortcutBtn.addEventListener('click', installFinderShortcut);
+  }
 
   loadConfig();
   loadSettings();
+  refreshFinderShortcutStatus();
+  refreshJobs();
+  window.setInterval(refreshJobs, 5000);
   loadPricing();
   loadModels();
   bindModelPicker();
