@@ -441,6 +441,19 @@ class TestResolveBackend:
         pipeline = SubtitlePipeline(cfg)
         assert pipeline._resolve_backend() == "faster-whisper"
 
+    def test_blank_asr_model_uses_default(self):
+        cfg = {
+            "ASR_BACKEND": "faster-whisper",
+            "ASR_MODEL": "",
+            "WHISPER_MODEL": "",
+            "TRANSLATION_BACKEND": "ollama",
+            "TRANSLATION_MODEL": "dummy",
+            "TARGET_LANGUAGE": "zh",
+        }
+        pipeline = SubtitlePipeline(cfg)
+        assert pipeline.asr_model_name == "large-v3"
+        assert pipeline.whisper_model_name == "large-v3"
+
     def test_explicit_qwen3_asr(self):
         cfg = {
             "ASR_BACKEND": "qwen3-asr",
