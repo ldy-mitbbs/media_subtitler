@@ -167,6 +167,61 @@ def _media_dir():
     return Path(current_app.config["MEDIA_DIR"]).resolve()
 
 
+def _resolve_media_path(filename):
+    media_dir = _media_dir()
+    target = (media_dir / filename).resolve()
+    try:
+        target.relative_to(media_dir)
+    except ValueError:
+        raise ValueError("Invalid selected file")
+    if not target.exists() or not target.is_file():
+        raise FileNotFoundError("Selected file does not exist")
+    return target
+
+
+def _find_sidecar_subtitle(media_path, result=None):
+    result = result or {}
+    subtitle_candidates = [
+        result.get("bilingual_srt"),
+        result.get("original_srt"),
+        str(media_path.with_suffix(".bilingual.srt")),
+        str(media_path.with_suffix(".orig.srt")),
+    ]
+    for candidate in subtitle_candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate).resolve()
+    return None
+
+
+def _open_media_with_player(media_path, subtitle_path=None):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    mpv_path = shutil.which("mpv")
+    if sys.platform == "darwin" and mpv_path:
+        cmd = [
+            mpv_path,
+            "--sub-auto=no",
+            "--sub-ass-override=strip",
+            "--sub-font-size=34",
+            "--sub-font=Noto Sans CJK SC",
+            "--sub-bold=no",
+            "--sub-border-size=2",
+        ]
+        if subtitle_path:
+            cmd.append(f"--sub-file={subtitle_path}")
+        cmd.append(str(media_path))
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(media_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    elif sys.platform == "win32":
+        os.startfile(str(media_path))
+    else:
+        subprocess.Popen(["xdg-open", str(media_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 @main_bp.route("/")
 def index():
     return render_template(
@@ -710,15 +765,42 @@ def job_download(job_id, output_kind):
 @main_bp.route("/api/media/files/<path:filename>")
 def serve_media_file(filename):
     """Serve an on-disk media file for in-browser playback."""
-    media_dir = _media_dir()
-    target = (media_dir / filename).resolve()
     try:
-        target.relative_to(media_dir)
+        target = _resolve_media_path(filename)
     except ValueError:
         return jsonify({"success": False, "message": "Invalid path"}), 400
-    if not target.exists() or not target.is_file():
+    except FileNotFoundError:
         return jsonify({"success": False, "message": "File not found"}), 404
-    return send_from_directory(media_dir, filename)
+    media_dir = _media_dir()
+    return send_from_directory(media_dir, str(target.relative_to(media_dir)))
+
+
+@main_bp.route("/api/media/open", methods=["POST"])
+def open_existing_media():
+    selected_file = (request.form.get("selected_file") or "").strip()
+    if not selected_file:
+        return jsonify({"success": False, "message": "No selected file"}), 400
+
+    try:
+        media_path = _resolve_media_path(selected_file)
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid selected file"}), 400
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "Selected file does not exist"}), 404
+
+    subtitle_path = _find_sidecar_subtitle(media_path)
+    try:
+        _open_media_with_player(media_path, subtitle_path)
+    except Exception as exc:
+        return jsonify({"success": False, "message": f"Failed to open file: {exc}"}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "opened": str(media_path),
+            "subtitle": str(subtitle_path) if subtitle_path else None,
+        }
+    )
 
 
 @main_bp.route("/api/jobs/<job_id>/open", methods=["POST"])
@@ -728,10 +810,6 @@ def open_job_media(job_id):
     This only works when the web server is running on the same machine as
     the browser (the typical local-use scenario for this app).
     """
-    import os
-    import subprocess
-    import sys
-
     manager = get_subtitle_manager()
     job = manager.get_job(job_id)
     if not job:
@@ -745,13 +823,10 @@ def open_job_media(job_id):
     if not media_path.exists() or not media_path.is_file():
         return jsonify({"success": False, "message": "Media file not found"}), 404
 
+    subtitle_path = _find_sidecar_subtitle(media_path, job.get("result") or {})
+
     try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", str(media_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        elif sys.platform == "win32":
-            os.startfile(str(media_path))
-        else:
-            subprocess.Popen(["xdg-open", str(media_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _open_media_with_player(media_path, subtitle_path)
     except Exception as exc:
         return jsonify({"success": False, "message": f"Failed to open file: {exc}"}), 500
 
