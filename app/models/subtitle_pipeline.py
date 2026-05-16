@@ -15,6 +15,7 @@ import time
 import tempfile
 import uuid
 import collections
+from fractions import Fraction
 from locale import getpreferredencoding
 from pathlib import Path
 
@@ -262,6 +263,45 @@ def _normalize_ass_play_res(play_res=None):
     return width, height
 
 
+def _parse_ffprobe_ratio(value):
+    if not value or value == "N/A":
+        return None
+    value = str(value)
+    try:
+        if ":" in value:
+            numerator, denominator = value.split(":", 1)
+            ratio = Fraction(int(numerator), int(denominator))
+        else:
+            ratio = Fraction(value)
+    except (ValueError, ZeroDivisionError):
+        return None
+    if ratio <= 0:
+        return None
+    return ratio
+
+
+def _display_play_res_from_stream(stream):
+    play_res = _normalize_ass_play_res((stream.get("width"), stream.get("height")))
+    width, height = play_res
+    if play_res == DEFAULT_ASS_PLAY_RES and not (
+        stream.get("width") and stream.get("height")
+    ):
+        return play_res
+
+    sample_aspect = _parse_ffprobe_ratio(stream.get("sample_aspect_ratio"))
+    if sample_aspect and sample_aspect != 1:
+        display_width = round(width * sample_aspect)
+        return _normalize_ass_play_res((display_width, height))
+
+    display_aspect = _parse_ffprobe_ratio(stream.get("display_aspect_ratio"))
+    encoded_aspect = Fraction(width, height)
+    if display_aspect and display_aspect != encoded_aspect:
+        display_width = round(height * display_aspect)
+        return _normalize_ass_play_res((display_width, height))
+
+    return play_res
+
+
 def detect_video_play_res(media_path):
     ffprobe_path = _find_media_tool("ffprobe")
     if not ffprobe_path:
@@ -274,7 +314,7 @@ def detect_video_play_res(media_path):
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=width,height",
+        "stream=width,height,sample_aspect_ratio,display_aspect_ratio",
         "-of",
         "json",
         str(media_path),
@@ -298,9 +338,7 @@ def detect_video_play_res(media_path):
         return DEFAULT_ASS_PLAY_RES
 
     for stream in payload.get("streams", []):
-        play_res = _normalize_ass_play_res(
-            (stream.get("width"), stream.get("height"))
-        )
+        play_res = _display_play_res_from_stream(stream)
         if play_res != DEFAULT_ASS_PLAY_RES:
             return play_res
         if stream.get("width") and stream.get("height"):
@@ -316,6 +354,8 @@ WrapStyle: 0
 ScaledBorderAndShadow: yes
 PlayResX: {play_res_x}
 PlayResY: {play_res_y}
+LayoutResX: {play_res_x}
+LayoutResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding

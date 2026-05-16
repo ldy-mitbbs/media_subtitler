@@ -114,6 +114,8 @@ class TestBilingualASS:
 
         assert "PlayResX: 1440" in content
         assert "PlayResY: 1080" in content
+        assert "LayoutResX: 1440" in content
+        assert "LayoutResY: 1080" in content
 
     def test_write_bilingual_ass_falls_back_to_default_play_resolution(self, tmp_path):
         path = tmp_path / "out.ass"
@@ -123,6 +125,8 @@ class TestBilingualASS:
 
         assert "PlayResX: 1920" in content
         assert "PlayResY: 1080" in content
+        assert "LayoutResX: 1920" in content
+        assert "LayoutResY: 1080" in content
 
     def test_detect_video_play_res_reads_first_video_stream(self, monkeypatch, tmp_path):
         class Completed:
@@ -136,6 +140,24 @@ class TestBilingualASS:
         )
 
         assert detect_video_play_res(tmp_path / "episode.ts") == (1440, 1080)
+
+    def test_detect_video_play_res_uses_display_width_for_anamorphic_video(
+        self, monkeypatch, tmp_path
+    ):
+        class Completed:
+            returncode = 0
+            stdout = (
+                '{"streams":[{"width":1440,"height":1080,'
+                '"sample_aspect_ratio":"4:3","display_aspect_ratio":"16:9"}]}'
+            )
+
+        monkeypatch.setattr("app.models.subtitle_pipeline.shutil.which", lambda _: "ffprobe")
+        monkeypatch.setattr(
+            "app.models.subtitle_pipeline.subprocess.run",
+            lambda *args, **kwargs: Completed(),
+        )
+
+        assert detect_video_play_res(tmp_path / "episode.ts") == (1920, 1080)
 
 
 # ------------------------------------------------------------------ dedupe
