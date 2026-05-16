@@ -326,6 +326,37 @@ class TestServeMediaFile:
 
 
 class TestOpenJobMedia:
+    def test_open_existing_media_uses_sidecar_bilingual_srt(
+        self, client, tmp_path, mocker, monkeypatch
+    ):
+        video = tmp_path / "ep01.mkv"
+        video.write_bytes(b"fake")
+        bilingual = tmp_path / "ep01.bilingual.srt"
+        bilingual.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n你好\n\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr("sys.platform", "darwin")
+        mocker.patch("shutil.which", return_value="/opt/homebrew/bin/mpv")
+        mock_popen = mocker.patch("subprocess.Popen")
+
+        resp = client.post("/api/media/open", data={"selected_file": "ep01.mkv"})
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["subtitle"] == str(bilingual)
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "/opt/homebrew/bin/mpv"
+        assert "--sub-auto=no" in cmd
+        assert "--sub-ass-override=strip" in cmd
+        assert f"--sub-file={bilingual}" in cmd
+
+    def test_open_existing_media_rejects_invalid_path(self, client):
+        resp = client.post("/api/media/open", data={"selected_file": "../ep01.mkv"})
+        assert resp.status_code == 400
+
     def test_open_job_media_happy_path(self, client, tmp_path, mocker):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
@@ -349,6 +380,42 @@ class TestOpenJobMedia:
         assert resp2.status_code == 200
         assert data["success"] is True
         mock_popen.assert_called_once()
+
+    def test_open_job_media_prefers_mpv_with_clean_subtitle_options(
+        self, client, tmp_path, mocker, monkeypatch
+    ):
+        from app.models.subtitle_pipeline import SubtitlePipeline
+
+        video = tmp_path / "ep01.mkv"
+        video.write_bytes(b"fake")
+        bilingual = tmp_path / "ep01.bilingual.srt"
+        bilingual.write_text(
+            "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n你好\n\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr("sys.platform", "darwin")
+        mocker.patch("shutil.which", return_value="/opt/homebrew/bin/mpv")
+        mocker.patch.object(SubtitlePipeline, "process")
+        resp = client.post(
+            "/api/jobs",
+            data={"selected_file": "ep01.mkv", "mode": "transcribe"},
+        )
+        job_id = resp.get_json()["job_id"]
+
+        mock_popen = mocker.patch("subprocess.Popen")
+        resp2 = client.post(f"/api/jobs/{job_id}/open")
+
+        assert resp2.status_code == 200
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "/opt/homebrew/bin/mpv"
+        assert "--sub-auto=no" in cmd
+        assert "--sub-ass-override=strip" in cmd
+        assert "--sub-font=Noto Sans CJK SC" in cmd
+        assert "--sub-font-size=34" in cmd
+        assert "--sub-bold=no" in cmd
+        assert "--sub-border-size=2" in cmd
+        assert f"--sub-file={bilingual}" in cmd
 
     def test_open_job_media_job_not_found(self, client):
         resp = client.post("/api/jobs/fake-id/open")
