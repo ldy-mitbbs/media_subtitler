@@ -273,12 +273,14 @@
 
     <div class="form-row">
       <label for="local-path">本地文件路径</label>
-      <div class="row">
+      <div class="row file-picker-row">
         <input id="local-path" type="text" placeholder="/Volumes/Drama/episode.mkv">
         <button id="choose-local" type="button">选择文件</button>
-        <button id="start-local" type="button" class="primary">直接运行</button>
       </div>
       <div class="hint" id="estimate-hint"></div>
+      <div class="run-actions">
+        <button id="start-local" type="button" class="primary run-primary">直接运行</button>
+      </div>
     </div>
   </section>
 

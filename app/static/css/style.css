@@ -109,6 +109,24 @@ button.primary {
 }
 button.primary:hover { background: var(--accent); border-color: var(--accent); }
 
+.file-picker-row {
+  align-items: stretch;
+}
+.file-picker-row input {
+  flex: 1 1 520px;
+  min-width: 260px;
+}
+.run-actions {
+  display: grid;
+  margin-top: 8px;
+}
+button.run-primary {
+  width: 100%;
+  min-height: 46px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
 #jobs { display: grid; gap: 12px; }
 
 .job {
