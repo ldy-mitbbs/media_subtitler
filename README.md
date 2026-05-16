@@ -215,6 +215,8 @@ Windows:
 
 <img src="docs/screenshots/video-player.png" width="800">
 
+<img src="docs/screenshots/video-player-details.png" width="800">
+
 ## 项目结构
 
 ```
