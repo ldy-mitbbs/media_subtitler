@@ -659,6 +659,9 @@
         ['original', '下载原始 SRT'],
         ['bilingual', '下载双语 SRT'],
       ];
+      if (r.bilingual_ass) {
+        links.push(['styled', '下载样式 ASS']);
+      }
       for (const [kind, label] of links) {
         const a = document.createElement('a');
         a.href = `/api/jobs/${status.job_id}/download/${kind}`;
