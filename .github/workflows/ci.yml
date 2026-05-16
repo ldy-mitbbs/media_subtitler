@@ -35,6 +35,8 @@ jobs:
   integration-ollama:
     if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[run-integration]')
     runs-on: ubuntu-latest
+    env:
+      OLLAMA_TEST_MODEL: qwen2.5:0.5b
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,7 +52,7 @@ jobs:
         uses: ollama/setup-ollama@v1
 
       - name: Pull test model
-        run: ollama pull qwen2.5:7b
+        run: ollama pull "$OLLAMA_TEST_MODEL"
 
       - name: Run Ollama integration tests
         run: pytest -v --run-integration --run-slow -m "ollama"
@@ -73,5 +75,6 @@ jobs:
       - name: Run OpenRouter integration tests
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: pytest -v --run-integration -m "openrouter"
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: pytest -v --run-integration -m "openrouter or deepseek"
         timeout-minutes: 10

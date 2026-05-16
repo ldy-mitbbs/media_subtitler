@@ -128,6 +128,33 @@ class TestBilingualASS:
         assert "LayoutResX: 1920" in content
         assert "LayoutResY: 1080" in content
 
+    def test_write_bilingual_ass_wraps_long_cjk_lines(self, tmp_path):
+        path = tmp_path / "out.ass"
+        long_translation = (
+            "今天在节目里我想展示一下这款丝袜真的非常顺滑"
+            "让腿看起来很美正是接下来凉鞋和出游季节想让大家看到的效果"
+        )
+
+        write_bilingual_ass(
+            [
+                {
+                    "start": 1.0,
+                    "end": 2.0,
+                    "source_text": "こちらの商品は本当にすべすべで脚をきれいに見せてくれます",
+                    "target_text": long_translation,
+                }
+            ],
+            path,
+            play_res=(1920, 1080),
+        )
+
+        content = path.read_text(encoding="utf-8-sig")
+
+        assert "Style: Translation,PingFang SC,50" in content
+        assert "Source,,144,144,12,," in content
+        assert "接下来凉\\N鞋和出游" in content
+        assert long_translation not in content
+
     def test_detect_video_play_res_reads_first_video_stream(self, monkeypatch, tmp_path):
         class Completed:
             returncode = 0

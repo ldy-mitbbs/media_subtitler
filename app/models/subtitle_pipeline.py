@@ -247,6 +247,10 @@ def write_srt(segments, output_path):
 
 
 DEFAULT_ASS_PLAY_RES = (1920, 1080)
+ASS_HORIZONTAL_MARGIN = 144
+ASS_VERTICAL_MARGIN = 12
+ASS_SOURCE_FONT_SIZE = 44
+ASS_TRANSLATION_FONT_SIZE = 50
 
 
 def _normalize_ass_play_res(play_res=None):
@@ -300,6 +304,72 @@ def _display_play_res_from_stream(stream):
         return _normalize_ass_play_res((display_width, height))
 
     return play_res
+
+
+def _ass_char_display_units(char):
+    codepoint = ord(char)
+    if char.isspace():
+        return 0.5
+    if (
+        0x1100 <= codepoint <= 0x11FF
+        or 0x2E80 <= codepoint <= 0xA4CF
+        or 0xAC00 <= codepoint <= 0xD7AF
+        or 0xF900 <= codepoint <= 0xFAFF
+        or 0xFE10 <= codepoint <= 0xFE6F
+        or 0xFF00 <= codepoint <= 0xFFEF
+    ):
+        return 1.0
+    if codepoint < 0x0080:
+        return 0.55
+    return 0.85
+
+
+def _ass_wrap_unit_limit(play_res_x, font_size, margin=ASS_HORIZONTAL_MARGIN):
+    usable_width = max(font_size * 8, play_res_x - (margin * 2))
+    return max(8, int(usable_width / (font_size * 0.92)))
+
+
+def _wrap_ass_plain_line(line, unit_limit):
+    line = (line or "").strip()
+    if not line:
+        return []
+
+    wrapped = []
+    current = []
+    current_units = 0.0
+    last_space_idx = -1
+
+    for char in line:
+        char_units = _ass_char_display_units(char)
+        if current and current_units + char_units > unit_limit:
+            if last_space_idx > 0:
+                wrapped.append("".join(current[:last_space_idx]).rstrip())
+                current = current[last_space_idx + 1 :]
+            else:
+                wrapped.append("".join(current).rstrip())
+                current = []
+            current_units = sum(_ass_char_display_units(c) for c in current)
+            last_space_idx = next(
+                (idx for idx in range(len(current) - 1, -1, -1) if current[idx].isspace()),
+                -1,
+            )
+
+        current.append(char)
+        current_units += char_units
+        if char.isspace():
+            last_space_idx = len(current) - 1
+
+    if current:
+        wrapped.append("".join(current).strip())
+    return [line for line in wrapped if line]
+
+
+def _wrap_ass_text(text, play_res_x, font_size):
+    unit_limit = _ass_wrap_unit_limit(play_res_x, font_size)
+    lines = []
+    for raw_line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        lines.extend(_wrap_ass_plain_line(raw_line, unit_limit))
+    return "\n".join(lines)
 
 
 def detect_video_play_res(media_path):
@@ -359,8 +429,8 @@ LayoutResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Source,Hiragino Sans,44,&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,96,96,12,1
-Style: Translation,PingFang SC,50,&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,96,96,12,1
+Style: Source,Hiragino Sans,{ASS_SOURCE_FONT_SIZE},&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
+Style: Translation,PingFang SC,{ASS_TRANSLATION_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -384,13 +454,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if not source:
                 continue
-            source_text = r"{\rSource}" + escape_ass_text(source)
+            source_text = r"{\rSource}" + escape_ass_text(
+                _wrap_ass_text(source, play_res_x, ASS_SOURCE_FONT_SIZE)
+            )
             if translation:
-                translation_text = r"{\rTranslation}" + escape_ass_text(translation)
+                translation_text = r"{\rTranslation}" + escape_ass_text(
+                    _wrap_ass_text(translation, play_res_x, ASS_TRANSLATION_FONT_SIZE)
+                )
                 text = source_text + r"\N" + translation_text
             else:
                 text = source_text
-            f.write(f"Dialogue: 0,{start},{end},Source,,0,0,0,,{text}\n")
+            f.write(
+                f"Dialogue: 0,{start},{end},Source,,"
+                f"{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},,"
+                f"{text}\n"
+            )
 
 
 def parse_srt_timestamp(value):
