@@ -390,6 +390,23 @@ class TestApiSettings:
         assert "UNKNOWN_KEY" not in data["settings"]
         assert data["settings"]["TARGET_LANGUAGE"] == "ko"
 
+    def test_post_settings_replaces_blank_asr_model_with_default(self, client, tmp_path, monkeypatch):
+        import config as config_module
+        settings_path = tmp_path / "settings.json"
+        monkeypatch.setattr(config_module, "_settings_path", lambda: settings_path)
+        monkeypatch.setattr(config_module, "SETTINGS", {})
+
+        resp = client.post(
+            "/api/settings",
+            json={"ASR_BACKEND": "faster-whisper", "ASR_MODEL": ""},
+        )
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["settings"]["ASR_MODEL"] == "large-v3"
+        assert client.application.config["ASR_MODEL"] == "large-v3"
+
 
 class TestServeMediaFile:
     def test_serve_existing_media_file(self, client, tmp_path):
