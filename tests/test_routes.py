@@ -67,6 +67,46 @@ class TestFileDialog:
         assert data["canceled"] is True
 
 
+class TestFinderShortcut:
+    def test_finder_shortcut_status_on_macos(self, client, mocker):
+        mocker.patch("app.routes.sys.platform", "darwin")
+        mocker.patch("app.routes._finder_shortcut_app_path", return_value=Path("/tmp/Finder.app"))
+
+        resp = client.get("/api/finder-shortcut")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["supported"] is True
+        assert data["installed"] is False
+
+    def test_finder_shortcut_installs_on_macos(self, client, tmp_path, mocker):
+        app_path = tmp_path / "Drama Subtitler Start Job.app"
+        installer = tmp_path / "install.sh"
+        installer.write_text("#!/bin/zsh\n", encoding="utf-8")
+
+        def fake_run(*args, **kwargs):
+            app_path.mkdir()
+            mock = mocker.Mock()
+            mock.returncode = 0
+            mock.stdout = "Installed"
+            mock.stderr = ""
+            return mock
+
+        mocker.patch("app.routes.sys.platform", "darwin")
+        mocker.patch("app.routes._finder_shortcut_app_path", return_value=app_path)
+        mocker.patch("app.routes._finder_shortcut_installer_path", return_value=installer)
+        mock_run = mocker.patch("app.routes.subprocess.run", side_effect=fake_run)
+
+        resp = client.post("/api/finder-shortcut")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["installed"] is True
+        mock_run.assert_called_once()
+
+
 class TestApiConfig:
     def test_returns_config(self, client):
         resp = client.get("/api/config")
@@ -156,6 +196,27 @@ class TestApiJobs:
         assert resp.status_code == 400
         assert data["success"] is False
         assert not (tmp_path / "uploads" / "test_vid.mkv").exists()
+
+    def test_list_jobs_includes_jobs_started_outside_page(self, client, tmp_path):
+        from app.models.subtitle_pipeline import SubtitlePipeline
+
+        media = tmp_path / "ep01.mkv"
+        media.write_bytes(b"fake")
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(SubtitlePipeline, "process", lambda *args, **kwargs: {"original_srt": "x"})
+            create_resp = client.post(
+                "/api/jobs",
+                data={"local_path": str(media), "mode": "transcribe"},
+            )
+
+        job_id = create_resp.get_json()["job_id"]
+        resp = client.get("/api/jobs")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert any(job["job_id"] == job_id and job["media_file"] == "ep01.mkv" for job in data["jobs"])
 
     def test_job_status_not_found(self, client):
         resp = client.get("/api/jobs/no-such-id")

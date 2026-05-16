@@ -2612,3 +2612,7 @@ class SubtitleJobManager:
     def get_job(self, job_id):
         with self.lock:
             return self.jobs.get(job_id)
+
+    def list_jobs(self):
+        with self.lock:
+            return dict(self.jobs)

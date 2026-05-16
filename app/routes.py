@@ -333,6 +333,14 @@ def _open_media_with_player(media_path, subtitle_path=None):
         subprocess.Popen(["xdg-open", str(media_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _finder_shortcut_app_path():
+    return Path.home() / "Applications" / "Drama Subtitler Start Job.app"
+
+
+def _finder_shortcut_installer_path():
+    return Path(__file__).resolve().parents[1] / "scripts" / "install-macos-finder-shortcut.sh"
+
+
 @main_bp.route("/")
 def index():
     return render_template(
@@ -363,6 +371,55 @@ def open_file_dialog():
         return jsonify({"success": False, "message": error}), 400
 
     return jsonify({"success": True, "path": str(candidate)})
+
+
+@main_bp.route("/api/finder-shortcut", methods=["GET", "POST"])
+def finder_shortcut():
+    if sys.platform != "darwin":
+        return jsonify(
+            {
+                "success": False,
+                "supported": False,
+                "installed": False,
+                "message": "Finder shortcut is only available on macOS",
+            }
+        ), 400
+
+    app_path = _finder_shortcut_app_path()
+    if request.method == "GET":
+        return jsonify(
+            {
+                "success": True,
+                "supported": True,
+                "installed": app_path.exists(),
+                "app_path": str(app_path),
+            }
+        )
+
+    installer = _finder_shortcut_installer_path()
+    if not installer.exists():
+        return jsonify({"success": False, "message": "Installer script not found"}), 500
+
+    result = subprocess.run(
+        [str(installer)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "Install failed").strip()
+        return jsonify({"success": False, "message": message}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "supported": True,
+            "installed": app_path.exists(),
+            "app_path": str(app_path),
+            "message": (result.stdout or "").strip(),
+        }
+    )
 
 
 @main_bp.route("/api/config")
@@ -737,6 +794,61 @@ def create_job():
     return jsonify({"success": True, "job_id": job_id})
 
 
+def _job_payload(job_id, job):
+    result = job.get("result")
+    cost = None
+    if result:
+        backend = result.get("translation_backend") or current_app.config.get("TRANSLATION_BACKEND")
+        model = result.get("translation_model")
+        usage = result.get("usage") or {}
+        if backend == "openrouter":
+            cost = _estimate_cost(model, usage)
+        elif backend == "deepseek":
+            entry = _DEEPSEEK_PRICING.get(model)
+            if entry:
+                cost = estimate_cost(
+                    int(usage.get("prompt_tokens") or 0),
+                    int(usage.get("completion_tokens") or 0),
+                    entry,
+                )
+
+    log = job.get("log")
+    log_tail = list(log)[-60:] if log else []
+
+    media_path = job.get("media_path")
+    media_file = None
+    if media_path:
+        media_path_obj = Path(media_path)
+        try:
+            media_file = str(media_path_obj.relative_to(_media_dir()))
+        except ValueError:
+            media_file = media_path_obj.name
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": job.get("status"),
+        "progress": job.get("progress", 0),
+        "message": job.get("message", ""),
+        "error": job.get("error"),
+        "result": result,
+        "cost": cost,
+        "media_path": media_path,
+        "media_file": media_file,
+        "created_at": job.get("created_at"),
+        "log": log_tail,
+    }
+
+
+@main_bp.route("/api/jobs", methods=["GET"])
+def list_jobs():
+    manager = get_subtitle_manager()
+    jobs = manager.list_jobs()
+    items = [_job_payload(job_id, job) for job_id, job in jobs.items()]
+    items.sort(key=lambda item: item.get("created_at") or 0, reverse=True)
+    return jsonify({"success": True, "jobs": items})
+
+
 @main_bp.route("/api/jobs/<job_id>/translate", methods=["POST"])
 def translate_job(job_id):
     """Run the translation phase for a job that's awaiting translation."""
@@ -776,50 +888,7 @@ def job_status(job_id):
     if not job:
         return jsonify({"success": False, "message": "Job not found"}), 404
 
-    result = job.get("result")
-    cost = None
-    if result:
-        backend = result.get("translation_backend") or current_app.config.get("TRANSLATION_BACKEND")
-        model = result.get("translation_model")
-        usage = result.get("usage") or {}
-        if backend == "openrouter":
-            cost = _estimate_cost(model, usage)
-        elif backend == "deepseek":
-            entry = _DEEPSEEK_PRICING.get(model)
-            if entry:
-                cost = estimate_cost(
-                    int(usage.get("prompt_tokens") or 0),
-                    int(usage.get("completion_tokens") or 0),
-                    entry,
-                )
-
-    log = job.get("log")
-    log_tail = list(log)[-60:] if log else []
-
-    media_path = job.get("media_path")
-    media_file = None
-    if media_path:
-        media_path_obj = Path(media_path)
-        try:
-            media_file = str(media_path_obj.relative_to(_media_dir()))
-        except ValueError:
-            media_file = media_path_obj.name
-
-    return jsonify(
-        {
-            "success": True,
-            "job_id": job_id,
-            "status": job.get("status"),
-            "progress": job.get("progress", 0),
-            "message": job.get("message", ""),
-            "error": job.get("error"),
-            "result": result,
-            "cost": cost,
-            "media_path": media_path,
-            "media_file": media_file,
-            "log": log_tail,
-        }
-    )
+    return jsonify(_job_payload(job_id, job))
 
 
 @main_bp.route("/api/jobs/<job_id>/cancel", methods=["POST"])

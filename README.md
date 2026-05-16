@@ -179,6 +179,14 @@ python run.py --port 5050
 
 打开 http://localhost:5050。在「本地文件路径」输入视频的绝对路径，程序会直接处理源文件，并把 `.orig.srt`、`.bilingual.srt`、`.bilingual.ass` 写在视频旁边。
 
+macOS Finder 右键启动任务：
+
+```bash
+./scripts/install-macos-finder-shortcut.sh
+```
+
+安装后，在 Finder 里选中媒体文件，右键选择 `Open With` / `打开方式` -> `Drama Subtitler Start Job`。这个入口会把文件路径提交到本地 Web 服务；如果 `http://127.0.0.1:5050` 没有运行，会尝试自动启动 `run.py`。
+
 Windows:
 
 ```powershell
