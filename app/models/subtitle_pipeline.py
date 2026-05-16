@@ -25,6 +25,13 @@ try:
 except ImportError:  # pragma: no cover - optional dep
     WhisperModel = None
 
+try:
+    import torch
+    from qwen_asr import Qwen3ASRModel
+except ImportError:  # pragma: no cover - optional dep
+    torch = None
+    Qwen3ASRModel = None
+
 
 # Languages supported by Whisper (and broadly available in modern translation
 # models). The display name is what gets injected into translation prompts;
@@ -297,13 +304,24 @@ class SubtitlePipeline:
         media_dir = config.get("MEDIA_DIR") or config.get("DOWNLOAD_DIR") or "media"
         self.media_dir = Path(media_dir)
 
-        self.whisper_backend = config.get("WHISPER_BACKEND", "faster-whisper")
-        self.whisper_model_name = config.get("WHISPER_MODEL", "large-v3")
-        self.whisper_device = config.get("WHISPER_DEVICE", "auto")
-        self.whisper_compute_type = config.get("WHISPER_COMPUTE_TYPE", "auto")
+        self.asr_backend = config.get("ASR_BACKEND") or config.get("WHISPER_BACKEND", "faster-whisper")
+        self.asr_model_name = config.get("ASR_MODEL") or config.get("WHISPER_MODEL", "large-v3")
+        self.asr_device = config.get("ASR_DEVICE") or config.get("WHISPER_DEVICE", "auto")
+        self.asr_compute_type = config.get("ASR_COMPUTE_TYPE") or config.get("WHISPER_COMPUTE_TYPE", "auto")
+        # Backward-compatible aliases used by older result/UI code.
+        self.whisper_backend = self.asr_backend
+        self.whisper_model_name = self.asr_model_name
+        self.whisper_device = self.asr_device
+        self.whisper_compute_type = self.asr_compute_type
         self.whisper_cpp_command = config.get("WHISPER_CPP_COMMAND", "whisper-cli")
         self.whisper_cpp_model_path = config.get("WHISPER_CPP_MODEL_PATH", "")
         self.whisper_cpp_threads = int(config.get("WHISPER_CPP_THREADS", 0) or 0)
+        self.qwen_asr_model_name = config.get("QWEN_ASR_MODEL") or (
+            self.asr_model_name
+            if str(self.asr_model_name).startswith("Qwen/")
+            else "Qwen/Qwen3-ASR-1.7B"
+        )
+        self.qwen_asr_chunk_seconds = int(config.get("QWEN_ASR_CHUNK_SECONDS", 90) or 90)
         self.gpu_base_url = str(config.get("GPU_BASE_URL", "") or "").rstrip("/").rstrip(":")
         self.remote_whisper_base_url = (
             str(config.get("REMOTE_WHISPER_BASE_URL", "") or "").rstrip("/")
@@ -463,8 +481,10 @@ class SubtitlePipeline:
                 "bilingual_srt": None,
                 "translation_model": None,
                 "translation_backend": None,
-                "whisper_model": self.whisper_model_name,
-                "whisper_backend": self.whisper_backend,
+                "asr_model": self.asr_model_name,
+                "asr_backend": self.asr_backend,
+                "whisper_model": self.asr_model_name,
+                "whisper_backend": self.asr_backend,
                 "usage": dict(self.translation_usage),
                 "stage": "transcribed",
             }
@@ -496,8 +516,10 @@ class SubtitlePipeline:
             "bilingual_srt": str(bilingual_srt),
             "translation_model": self.translation_model,
             "translation_backend": self.translation_backend,
-            "whisper_model": self.whisper_model_name,
-            "whisper_backend": self.whisper_backend,
+            "asr_model": self.asr_model_name,
+            "asr_backend": self.asr_backend,
+            "whisper_model": self.asr_model_name,
+            "whisper_backend": self.asr_backend,
             "usage": dict(self.translation_usage),
             "stage": "completed",
         }
@@ -510,18 +532,20 @@ class SubtitlePipeline:
     # ------------------------------------------------------------------ whisper
 
     def _resolve_backend(self):
-        backend = (self.whisper_backend or "faster-whisper").strip().lower()
+        backend = (self.asr_backend or "faster-whisper").strip().lower()
         if backend in {"whispercpp", "whisper.cpp"}:
             return "whispercpp"
         if backend in {"faster-whisper", "faster_whisper"}:
             return "faster-whisper"
         if backend in {"remote-faster-whisper", "remote_faster_whisper"}:
             return "remote-faster-whisper"
+        if backend in {"qwen3-asr", "qwen-asr", "qwen3_asr", "qwen_asr"}:
+            return "qwen3-asr"
         if backend == "openai":
             return "openai"
         if backend == "auto":
             return "whispercpp" if shutil.which(self.whisper_cpp_command) else "faster-whisper"
-        raise RuntimeError(f"Unsupported WHISPER_BACKEND: {self.whisper_backend}")
+        raise RuntimeError(f"Unsupported ASR_BACKEND: {self.asr_backend}")
 
     def _transcribe(self, media_path, backend, progress_cb=None, language_hint=None):
         if backend == "whispercpp":
@@ -532,7 +556,224 @@ class SubtitlePipeline:
             return self._transcribe_with_remote_faster_whisper(
                 media_path, progress_cb, language_hint
             )
+        if backend == "qwen3-asr":
+            return self._transcribe_with_qwen3_asr(media_path, progress_cb, language_hint)
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
+
+    def _transcribe_with_qwen3_asr(self, media_path, progress_cb=None, language_hint=None):
+        if Qwen3ASRModel is None or torch is None:
+            raise RuntimeError(
+                "qwen-asr is not installed. Install it with: pip install qwen-asr"
+            )
+
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to prepare audio for Qwen3-ASR")
+
+        chunk_seconds = max(15, int(self.qwen_asr_chunk_seconds or 90))
+        with tempfile.TemporaryDirectory(prefix="drama-subtitler-qwen-asr-") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            audio_path = temp_dir_path / "audio.wav"
+            if progress_cb:
+                progress_cb(5, "Extracting audio for Qwen3-ASR")
+            self._extract_audio_mono_16k(media_path, audio_path)
+            duration = self._probe_audio_duration(audio_path) or 0.0
+            chunk_paths = self._split_audio_chunks(audio_path, temp_dir_path, chunk_seconds)
+
+            if progress_cb:
+                progress_cb(10, f"Loading Qwen3-ASR model ({self.qwen_asr_model_name})")
+
+            model_kwargs = {
+                "max_inference_batch_size": 1,
+                "max_new_tokens": 4096,
+            }
+            device = self._qwen_asr_device()
+            if device:
+                model_kwargs["device_map"] = device
+            if torch is not None:
+                model_kwargs["dtype"] = torch.float16 if device == "mps" else torch.float32
+
+            model = Qwen3ASRModel.from_pretrained(self.qwen_asr_model_name, **model_kwargs)
+            qwen_language = self._qwen_language_name(language_hint)
+            context = self._qwen_asr_context(media_path)
+            segments = []
+            source_language = language_hint or "unknown"
+            for index, chunk_path in enumerate(chunk_paths):
+                start = index * chunk_seconds
+                end = min(duration, start + chunk_seconds) if duration else start + chunk_seconds
+                if progress_cb:
+                    progress = min(55, 10 + int(index / max(1, len(chunk_paths)) * 45))
+                    progress_cb(progress, f"Qwen3-ASR transcribing chunk {index + 1}/{len(chunk_paths)}")
+                result = model.transcribe(
+                    audio=str(chunk_path),
+                    language=qwen_language,
+                    context=context,
+                )[0]
+                source_language = getattr(result, "language", source_language) or source_language
+                text = str(getattr(result, "text", "") or "").strip()
+                segments.extend(self._segments_from_qwen_text(text, start, end))
+
+        segments = self._repair_mojibake_segments(segments)
+        segments = _dedupe_repeated_segments(segments)
+        if progress_cb:
+            progress_cb(55, f"Qwen3-ASR transcription complete ({len(segments)} segments)")
+        return segments, source_language
+
+    @staticmethod
+    def _qwen_language_name(language_hint):
+        if not language_hint:
+            return None
+        code = str(language_hint).strip().lower()
+        return {
+            "ja": "Japanese",
+            "jpn": "Japanese",
+            "ko": "Korean",
+            "kor": "Korean",
+            "zh": "Chinese",
+            "zh-cn": "Chinese",
+            "zh-tw": "Chinese",
+            "en": "English",
+        }.get(code, language_display_name(code) or None)
+
+    @staticmethod
+    def _qwen_asr_device():
+        if torch is None:
+            return None
+        try:
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                return "mps"
+            if torch.cuda.is_available():
+                return "cuda"
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _qwen_asr_context(media_path):
+        title = Path(media_path).stem
+        return (
+            "Transcribe this media for subtitles. Preserve names, places, product titles, "
+            f"and domain terms from the filename when they are spoken. Filename: {title}"
+        )
+
+    @staticmethod
+    def _extract_audio_mono_16k(media_path, wav_path):
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to prepare audio")
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(media_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(wav_path),
+        ]
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            msg = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()
+            raise RuntimeError(f"ffmpeg audio extraction failed: {msg[:500]}")
+
+    @staticmethod
+    def _probe_audio_duration(audio_path):
+        ffprobe_path = shutil.which("ffprobe")
+        if not ffprobe_path:
+            return None
+        completed = subprocess.run(
+            [
+                ffprobe_path,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        try:
+            return float((completed.stdout or "").strip())
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _split_audio_chunks(audio_path, temp_dir_path, chunk_seconds):
+        duration = SubtitlePipeline._probe_audio_duration(audio_path)
+        if not duration or duration <= chunk_seconds:
+            return [audio_path]
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to split audio")
+        chunk_paths = []
+        offset = 0.0
+        index = 0
+        while offset < duration:
+            actual = min(chunk_seconds, max(0.1, duration - offset))
+            chunk_path = temp_dir_path / f"qwen_chunk_{index:04d}.wav"
+            cmd = [
+                ffmpeg_path,
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{offset:.3f}",
+                "-t",
+                f"{actual:.3f}",
+                "-i",
+                str(audio_path),
+                "-c:a",
+                "pcm_s16le",
+                str(chunk_path),
+            ]
+            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if completed.returncode != 0:
+                msg = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()
+                raise RuntimeError(f"ffmpeg audio chunking failed: {msg[:500]}")
+            chunk_paths.append(chunk_path)
+            offset += chunk_seconds
+            index += 1
+        return chunk_paths
+
+    @staticmethod
+    def _segments_from_qwen_text(text, start, end):
+        text = re.sub(r"\s+", " ", (text or "").strip())
+        if not text:
+            return []
+        parts = [
+            part.strip()
+            for part in re.split(r"(?<=[。！？!?])\s*", text)
+            if part.strip()
+        ] or [text]
+        total_chars = sum(max(1, len(part)) for part in parts)
+        duration = max(0.5, end - start)
+        cursor = start
+        segments = []
+        for index, part in enumerate(parts):
+            if index == len(parts) - 1:
+                seg_end = end
+            else:
+                seg_duration = duration * (max(1, len(part)) / total_chars)
+                seg_end = min(end, cursor + max(0.5, seg_duration))
+            if seg_end <= cursor:
+                seg_end = cursor + 0.5
+            segments.append({"start": cursor, "end": seg_end, "text": part})
+            cursor = seg_end
+        return segments
 
     def _find_embedded_subtitle_stream(self, media_path, language_hint=None):
         ffprobe_path = shutil.which("ffprobe")

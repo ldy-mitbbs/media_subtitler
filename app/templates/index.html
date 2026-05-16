@@ -81,19 +81,20 @@
           <h3>默认参数</h3>
           <div class="settings-row">
             <div class="settings-field">
-              <label for="setting-whisper-backend">默认 Whisper 后端</label>
+              <label for="setting-whisper-backend">默认语音识别后端</label>
               <select id="setting-whisper-backend">
                 <option value="">使用默认</option>
                 <option value="auto">自动</option>
                 <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
                 <option value="faster-whisper">本地 faster-whisper</option>
                 <option value="whispercpp">本地 whisper.cpp</option>
+                <option value="qwen3-asr">本地 Qwen3-ASR</option>
                 <option value="openai">OpenAI Whisper API</option>
               </select>
             </div>
             <div class="settings-field">
-              <label for="setting-whisper-model">默认 Whisper 模型</label>
-              <input id="setting-whisper-model" type="text" placeholder="large-v3">
+              <label for="setting-whisper-model">默认语音识别模型</label>
+              <input id="setting-whisper-model" type="text" placeholder="large-v3 或 Qwen/Qwen3-ASR-1.7B">
             </div>
           </div>
           <div class="settings-row">
@@ -172,13 +173,14 @@
     </div>
 
     <div class="form-row">
-      <label for="whisper-backend">Whisper 后端</label>
+      <label for="whisper-backend">语音识别后端</label>
       <select id="whisper-backend">
         <option value="">使用默认</option>
         <option value="auto">自动</option>
         <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
         <option value="faster-whisper">本地 faster-whisper</option>
         <option value="whispercpp">本地 whisper.cpp</option>
+        <option value="qwen3-asr">本地 Qwen3-ASR</option>
         <option value="openai">OpenAI Whisper API</option>
       </select>
     </div>
@@ -194,7 +196,7 @@
 
     <div class="form-row">
       <label for="whisper-model">
-        Whisper 模型
+        语音识别模型
         <span class="hint" id="whisper-defaults"></span>
       </label>
       <input id="whisper-model" type="text" list="whisper-model-list" placeholder="（使用默认）">
@@ -206,6 +208,8 @@
         <option value="large-v2">
         <option value="large-v3">
         <option value="large-v3-turbo">
+        <option value="Qwen/Qwen3-ASR-0.6B">
+        <option value="Qwen/Qwen3-ASR-1.7B">
       </datalist>
     </div>
 

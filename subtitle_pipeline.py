@@ -40,10 +40,11 @@ def build_config(overrides):
 
     cfg = {
         "MEDIA_DIR": Config.MEDIA_DIR,
-        "WHISPER_BACKEND": Config.WHISPER_BACKEND,
-        "WHISPER_MODEL": Config.WHISPER_MODEL,
-        "WHISPER_DEVICE": Config.WHISPER_DEVICE,
-        "WHISPER_COMPUTE_TYPE": Config.WHISPER_COMPUTE_TYPE,
+        "ASR_BACKEND": Config.ASR_BACKEND,
+        "ASR_MODEL": Config.ASR_MODEL,
+        "ASR_DEVICE": Config.ASR_DEVICE,
+        "ASR_COMPUTE_TYPE": Config.ASR_COMPUTE_TYPE,
+        "QWEN_ASR_CHUNK_SECONDS": Config.QWEN_ASR_CHUNK_SECONDS,
         "WHISPER_CPP_COMMAND": Config.WHISPER_CPP_COMMAND,
         "WHISPER_CPP_MODEL_PATH": Config.WHISPER_CPP_MODEL_PATH,
         "WHISPER_CPP_THREADS": Config.WHISPER_CPP_THREADS,
@@ -105,10 +106,15 @@ def main():
         "--source-language",
         help="Force source language (e.g. ja, ko). Default: auto-detect.",
     )
-    parser.add_argument("--whisper-backend", help="Whisper backend (faster-whisper/remote-faster-whisper/whispercpp/openai/auto)")
-    parser.add_argument("--whisper-model", help="Whisper model name")
-    parser.add_argument("--whisper-device", help="Whisper device (auto/cpu/cuda)")
-    parser.add_argument("--whisper-compute-type", help="Whisper compute type")
+    parser.add_argument("--asr-backend", help="ASR backend (auto/faster-whisper/remote-faster-whisper/whispercpp/openai/qwen3-asr)")
+    parser.add_argument("--asr-model", help="ASR model name")
+    parser.add_argument("--asr-device", help="ASR device (auto/cpu/cuda)")
+    parser.add_argument("--asr-compute-type", help="ASR compute type")
+    parser.add_argument("--qwen-asr-chunk-seconds", type=int, help="Qwen3-ASR audio chunk length")
+    parser.add_argument("--whisper-backend", help=argparse.SUPPRESS)
+    parser.add_argument("--whisper-model", help=argparse.SUPPRESS)
+    parser.add_argument("--whisper-device", help=argparse.SUPPRESS)
+    parser.add_argument("--whisper-compute-type", help=argparse.SUPPRESS)
     parser.add_argument("--whispercpp-command", help="whisper.cpp CLI command name/path")
     parser.add_argument("--whispercpp-model-path", help="Path to whisper.cpp ggml model file")
     parser.add_argument("--whispercpp-threads", type=int, help="whisper.cpp thread count")
@@ -138,10 +144,11 @@ def main():
     args = parser.parse_args()
 
     overrides = {
-        "WHISPER_BACKEND": args.whisper_backend,
-        "WHISPER_MODEL": args.whisper_model,
-        "WHISPER_DEVICE": args.whisper_device,
-        "WHISPER_COMPUTE_TYPE": args.whisper_compute_type,
+        "ASR_BACKEND": args.asr_backend or args.whisper_backend,
+        "ASR_MODEL": args.asr_model or args.whisper_model,
+        "ASR_DEVICE": args.asr_device or args.whisper_device,
+        "ASR_COMPUTE_TYPE": args.asr_compute_type or args.whisper_compute_type,
+        "QWEN_ASR_CHUNK_SECONDS": args.qwen_asr_chunk_seconds,
         "WHISPER_CPP_COMMAND": args.whispercpp_command,
         "WHISPER_CPP_MODEL_PATH": args.whispercpp_model_path,
         "WHISPER_CPP_THREADS": args.whispercpp_threads,
@@ -176,8 +183,8 @@ def main():
 
     print(f"Input: {media_path}")
     print(
-        f"Whisper: {cfg['WHISPER_MODEL']} via {cfg['WHISPER_BACKEND']} "
-        f"({cfg['WHISPER_DEVICE']}/{cfg['WHISPER_COMPUTE_TYPE']})"
+        f"ASR: {cfg['ASR_MODEL']} via {cfg['ASR_BACKEND']} "
+        f"({cfg['ASR_DEVICE']}/{cfg['ASR_COMPUTE_TYPE']})"
     )
     print(f"Translator: {cfg['TRANSLATION_MODEL']} (backend={cfg['TRANSLATION_BACKEND']})")
     print(f"Target language: {cfg['TARGET_LANGUAGE']}")

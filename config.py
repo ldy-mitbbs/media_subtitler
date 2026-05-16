@@ -49,6 +49,11 @@ def _seed_settings_from_env():
     known_keys = {
         "SECRET_KEY",
         "MEDIA_DIR",
+        "ASR_BACKEND",
+        "ASR_MODEL",
+        "ASR_DEVICE",
+        "ASR_COMPUTE_TYPE",
+        "QWEN_ASR_CHUNK_SECONDS",
         "WHISPER_BACKEND",
         "WHISPER_MODEL",
         "WHISPER_DEVICE",
@@ -147,11 +152,33 @@ class Config:
     # Media library directory.
     MEDIA_DIR = _get_setting(SETTINGS, "MEDIA_DIR", "media")
 
-    # --- Whisper ---
-    WHISPER_BACKEND = _get_setting(SETTINGS, "WHISPER_BACKEND", _default_whisper_backend())
-    WHISPER_MODEL = _get_setting(SETTINGS, "WHISPER_MODEL", "large-v3")
-    WHISPER_DEVICE = _get_setting(SETTINGS, "WHISPER_DEVICE", "auto")
-    WHISPER_COMPUTE_TYPE = _get_setting(SETTINGS, "WHISPER_COMPUTE_TYPE", _default_compute_type())
+    # --- ASR ---
+    ASR_BACKEND = _get_setting(
+        SETTINGS,
+        "ASR_BACKEND",
+        _get_setting(SETTINGS, "WHISPER_BACKEND", _default_whisper_backend()),
+    )
+    ASR_MODEL = _get_setting(
+        SETTINGS,
+        "ASR_MODEL",
+        _get_setting(SETTINGS, "WHISPER_MODEL", "large-v3"),
+    )
+    ASR_DEVICE = _get_setting(
+        SETTINGS,
+        "ASR_DEVICE",
+        _get_setting(SETTINGS, "WHISPER_DEVICE", "auto"),
+    )
+    ASR_COMPUTE_TYPE = _get_setting(
+        SETTINGS,
+        "ASR_COMPUTE_TYPE",
+        _get_setting(SETTINGS, "WHISPER_COMPUTE_TYPE", _default_compute_type()),
+    )
+    QWEN_ASR_CHUNK_SECONDS = _get_setting_int(SETTINGS, "QWEN_ASR_CHUNK_SECONDS", 90)
+    # Backward-compatible aliases for older code and existing settings.
+    WHISPER_BACKEND = ASR_BACKEND
+    WHISPER_MODEL = ASR_MODEL
+    WHISPER_DEVICE = ASR_DEVICE
+    WHISPER_COMPUTE_TYPE = ASR_COMPUTE_TYPE
     WHISPER_CPP_COMMAND = _get_setting(SETTINGS, "WHISPER_CPP_COMMAND", "whisper-cli")
     WHISPER_CPP_MODEL_PATH = _get_setting(SETTINGS, "WHISPER_CPP_MODEL_PATH", "")
     WHISPER_CPP_THREADS = _get_setting_int(SETTINGS, "WHISPER_CPP_THREADS", 0)
