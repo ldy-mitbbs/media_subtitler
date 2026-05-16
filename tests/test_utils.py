@@ -11,6 +11,7 @@ from app.models.subtitle_pipeline import (
     clean_extracted_subtitle_text,
     detect_video_play_res,
     _dedupe_repeated_segments,
+    _find_media_tool,
     _is_fatal_http_error,
     format_srt_timestamp,
     language_display_name,
@@ -250,6 +251,22 @@ class TestParseRetryWait:
         class FakeResp:
             headers = {}
         assert SubtitlePipeline._parse_retry_wait(FakeResp()) == 5.0
+
+
+def test_find_media_tool_checks_common_gui_launch_paths(monkeypatch):
+    target = "/opt/homebrew/bin/ffprobe"
+
+    monkeypatch.setattr("app.models.subtitle_pipeline.shutil.which", lambda _: None)
+    monkeypatch.setattr(
+        "app.models.subtitle_pipeline.Path.exists",
+        lambda self: str(self) == target,
+    )
+    monkeypatch.setattr(
+        "app.models.subtitle_pipeline.os.access",
+        lambda path, mode: str(path) == target,
+    )
+
+    assert _find_media_tool("ffprobe") == target
 
 
 # ------------------------------------------------------------------ record usage

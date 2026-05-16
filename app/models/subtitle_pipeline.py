@@ -139,6 +139,25 @@ def format_srt_timestamp(seconds):
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
+def _find_media_tool(name):
+    """Find ffmpeg/ffprobe even when launched from macOS GUI with a tiny PATH."""
+    found = shutil.which(name)
+    if found:
+        return found
+
+    for directory in (
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+        "/usr/bin",
+        "/bin",
+    ):
+        candidate = Path(directory) / name
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def format_ass_timestamp(seconds):
     total_cs = max(0, int(seconds * 100))
     hours = total_cs // 360000
@@ -244,7 +263,7 @@ def _normalize_ass_play_res(play_res=None):
 
 
 def detect_video_play_res(media_path):
-    ffprobe_path = shutil.which("ffprobe")
+    ffprobe_path = _find_media_tool("ffprobe")
     if not ffprobe_path:
         return DEFAULT_ASS_PLAY_RES
 
@@ -697,7 +716,7 @@ class SubtitlePipeline:
                 "qwen-asr is not installed. Install it with: pip install qwen-asr"
             )
 
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for Qwen3-ASR")
 
@@ -789,7 +808,7 @@ class SubtitlePipeline:
 
     @staticmethod
     def _extract_audio_mono_16k(media_path, wav_path):
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio")
         cmd = [
@@ -816,7 +835,7 @@ class SubtitlePipeline:
 
     @staticmethod
     def _probe_audio_duration(audio_path):
-        ffprobe_path = shutil.which("ffprobe")
+        ffprobe_path = _find_media_tool("ffprobe")
         if not ffprobe_path:
             return None
         completed = subprocess.run(
@@ -846,7 +865,7 @@ class SubtitlePipeline:
         duration = SubtitlePipeline._probe_audio_duration(audio_path)
         if not duration or duration <= chunk_seconds:
             return [audio_path]
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to split audio")
         chunk_paths = []
@@ -907,7 +926,7 @@ class SubtitlePipeline:
         return segments
 
     def _find_embedded_subtitle_stream(self, media_path, language_hint=None):
-        ffprobe_path = shutil.which("ffprobe")
+        ffprobe_path = _find_media_tool("ffprobe")
         if not ffprobe_path:
             return None
 
@@ -991,7 +1010,7 @@ class SubtitlePipeline:
         progress_cb=None,
         language_hint=None,
     ):
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to extract embedded subtitles")
 
@@ -1045,7 +1064,7 @@ class SubtitlePipeline:
 
     @staticmethod
     def _ffmpeg_has_decoder(codec_name):
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             return False
 
@@ -1076,7 +1095,7 @@ class SubtitlePipeline:
                 "Set GPU_BASE_URL=http://<gpu-pc-ip> or REMOTE_WHISPER_BASE_URL=http://<host>:5051."
             )
 
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for remote faster-whisper")
 
@@ -1464,7 +1483,7 @@ class SubtitlePipeline:
 
     @staticmethod
     def _extract_audio_for_whispercpp(media_path, wav_path):
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for whisper.cpp")
 
@@ -1536,7 +1555,7 @@ class SubtitlePipeline:
         if progress_cb:
             progress_cb(5, "Preparing audio for OpenAI Whisper API")
 
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for OpenAI API")
 
