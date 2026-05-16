@@ -564,10 +564,18 @@ class SubtitlePipeline:
         media_dir = config.get("MEDIA_DIR") or config.get("DOWNLOAD_DIR") or "media"
         self.media_dir = Path(media_dir)
 
-        self.asr_backend = config.get("ASR_BACKEND") or config.get("WHISPER_BACKEND", "faster-whisper")
-        self.asr_model_name = config.get("ASR_MODEL") or config.get("WHISPER_MODEL", "large-v3")
-        self.asr_device = config.get("ASR_DEVICE") or config.get("WHISPER_DEVICE", "auto")
-        self.asr_compute_type = config.get("ASR_COMPUTE_TYPE") or config.get("WHISPER_COMPUTE_TYPE", "auto")
+        self.asr_backend = self._config_text(
+            config, "ASR_BACKEND", "WHISPER_BACKEND", default="faster-whisper"
+        )
+        self.asr_model_name = self._config_text(
+            config, "ASR_MODEL", "WHISPER_MODEL", default="large-v3"
+        )
+        self.asr_device = self._config_text(
+            config, "ASR_DEVICE", "WHISPER_DEVICE", default="auto"
+        )
+        self.asr_compute_type = self._config_text(
+            config, "ASR_COMPUTE_TYPE", "WHISPER_COMPUTE_TYPE", default="auto"
+        )
         # Backward-compatible aliases used by older result/UI code.
         self.whisper_backend = self.asr_backend
         self.whisper_model_name = self.asr_model_name
@@ -630,6 +638,18 @@ class SubtitlePipeline:
         # Per-run JSON-mode flag; reset on each process() call. Auto-disables
         # if the model rejects response_format mid-run.
         self._json_mode_enabled = True
+
+    @staticmethod
+    def _config_text(config, primary_key, legacy_key=None, default=""):
+        for key in (primary_key, legacy_key):
+            if not key:
+                continue
+            val = config.get(key)
+            if isinstance(val, str):
+                val = val.strip()
+            if val not in (None, ""):
+                return val
+        return default
 
     def _note_translation_error(self):
         self._translation_error_count += 1

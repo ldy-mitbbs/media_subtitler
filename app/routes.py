@@ -1,3 +1,4 @@
+import platform
 import re
 import shutil
 import subprocess
@@ -25,6 +26,11 @@ main_bp = Blueprint("main", __name__)
 
 _PRICING_CACHE = {"data": None, "fetched_at": 0.0}
 _PRICING_TTL_SECONDS = 30 * 60
+_IS_APPLE_SILICON = sys.platform == "darwin" and platform.machine() in ("arm64", "aarch64")
+
+
+def _default_asr_backend():
+    return "whispercpp" if _IS_APPLE_SILICON else "faster-whisper"
 
 # DeepSeek doesn't expose pricing via API, so we hardcode published USD/token rates.
 # Source: https://api-docs.deepseek.com/quick_start/pricing (cache-miss prices).
@@ -520,6 +526,11 @@ def update_settings():
         updates["ASR_BACKEND"] = updates.pop("WHISPER_BACKEND")
     if "WHISPER_MODEL" in updates and "ASR_MODEL" not in updates:
         updates["ASR_MODEL"] = updates.pop("WHISPER_MODEL")
+
+    if "ASR_BACKEND" in updates and not (updates.get("ASR_BACKEND") or "").strip():
+        updates["ASR_BACKEND"] = _default_asr_backend()
+    if "ASR_MODEL" in updates and not (updates.get("ASR_MODEL") or "").strip():
+        updates["ASR_MODEL"] = "large-v3"
 
     # Normalize GPU_BASE_URL
     gpu = updates.get("GPU_BASE_URL")
