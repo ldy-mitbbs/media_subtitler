@@ -70,7 +70,7 @@ shell 环境变量 > .env.local > .env > 代码默认值
 - **Whisper**: `WHISPER_BACKEND`, `WHISPER_MODEL`, `WHISPER_CPP_MODEL_PATH` 等
 - **翻译后端**: `TRANSLATION_BACKEND`（`ollama` / `openrouter` / `deepseek`）
 - **目标语言**: `TARGET_LANGUAGE`（默认 `zh`）
-- **媒体目录**: `MEDIA_DIR`
+- **媒体目录**: `MEDIA_DIR`（CLI 相对路径解析使用；Web UI 直接处理本地绝对路径）
 
 **注意**: 默认后端在 Apple Silicon 上自动选 `whispercpp`，其他平台用 `faster-whisper`。
 
@@ -232,8 +232,8 @@ SubtitlePipeline.process()
 ```
 POST /api/jobs
   │
-  ├─ 上传文件 → media/uploads/
-  │  或选择已有文件
+  ├─ local_path 指向本机已有媒体文件
+  │
   │
   ▼
 SubtitleJobManager.start_job()
@@ -242,7 +242,7 @@ SubtitleJobManager.start_job()
   ├─ 通过 progress_cb 更新进度到 jobs[job_id]
   │
 GET /api/jobs/<id>          # 轮询进度
-GET /api/jobs/<id>/download/original|bilingual  # 下载 SRT
+GET /api/jobs/<id>/download/original|bilingual|styled  # 下载字幕
 ```
 
 进度百分比分配（大致）：
