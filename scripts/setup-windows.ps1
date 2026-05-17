@@ -1,5 +1,5 @@
 <#
-Bootstrap a fresh drama_subtitler checkout on Windows.
+Bootstrap a fresh media_subtitler checkout on Windows.
 
 Run from the repository root:
   Set-ExecutionPolicy -Scope Process Bypass
@@ -39,7 +39,7 @@ function Invoke-ConfiguredPython {
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $RepoRoot
 
-Write-Host "drama_subtitler Windows setup"
+Write-Host "media_subtitler Windows setup"
 Write-Host "Repo: $RepoRoot"
 
 Write-Step "Checking Python"
@@ -88,4 +88,4 @@ Write-Host "Run the web app:"
 Write-Host "  .\scripts\run-web-windows.ps1"
 Write-Host ""
 Write-Host "Run one file from PowerShell:"
-Write-Host "  .\.venv\Scripts\python.exe .\subtitle_pipeline.py C:\path\to\episode.mkv --translation-backend deepseek --target-language zh"
+Write-Host "  .\.venv\Scripts\python.exe .\subtitle_pipeline.py C:\path\to\sample.mkv --translation-backend deepseek --target-language zh"

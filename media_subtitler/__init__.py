@@ -1,7 +1,7 @@
-"""drama_subtitler — pip-installable façade.
+"""media_subtitler — pip-installable façade.
 
 Re-exports the public surface (`SubtitlePipeline`, model auto-download
-helper) so external consumers can ``import drama_subtitler`` without
+helper) so external consumers can ``import media_subtitler`` without
 relying on the ``app.*`` Flask layout.
 """
 from .pipeline import SubtitlePipeline

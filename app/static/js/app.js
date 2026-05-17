@@ -73,7 +73,7 @@
         return;
       }
       if (data.installed) {
-        setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Drama Subtitler Start Job', 'success');
+        setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Media Subtitler Start Job', 'success');
       } else {
         setFinderShortcutStatus('未安装');
       }
@@ -95,7 +95,7 @@
         setFinderShortcutStatus(data.message || '安装失败', 'error');
         return;
       }
-      setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Drama Subtitler Start Job', 'success');
+      setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Media Subtitler Start Job', 'success');
     } catch (err) {
       setFinderShortcutStatus(`安装失败：${err}`, 'error');
     } finally {

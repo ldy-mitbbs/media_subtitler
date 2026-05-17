@@ -11,5 +11,5 @@ media/
 !tests/**/*.srt
 .DS_Store
 settings.json
-drama-subtitler-finder.log
+media-subtitler-finder.log
 .vscode/

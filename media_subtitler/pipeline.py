@@ -7,7 +7,7 @@ consumer) by using ``importlib.util.spec_from_file_location``.
 
 External consumers should::
 
-    from drama_subtitler import SubtitlePipeline
+    from media_subtitler import SubtitlePipeline
 
 The path indirection is an internal detail and can go away once the
 implementation file is moved into this package proper.
@@ -21,15 +21,15 @@ from types import ModuleType
 
 
 def _load_impl() -> ModuleType:
-    # drama_subtitler/<this_file> → repo_root/app/models/subtitle_pipeline.py
+    # media_subtitler/<this_file> → repo_root/app/models/subtitle_pipeline.py
     repo_root = Path(__file__).resolve().parent.parent
     target = repo_root / "app" / "models" / "subtitle_pipeline.py"
     if not target.is_file():
         raise ImportError(
-            "drama_subtitler: implementation file missing at "
+            "media_subtitler: implementation file missing at "
             f"{target}. Reinstall the package or check your checkout."
         )
-    mod_name = "drama_subtitler._impl_subtitle_pipeline"
+    mod_name = "media_subtitler._impl_subtitle_pipeline"
     cached = sys.modules.get(mod_name)
     if cached is not None:
         return cached

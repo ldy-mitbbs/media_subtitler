@@ -1,7 +1,7 @@
 """Whisper.cpp model auto-download / cache.
 
 Centralises the convention of stashing ggml-format whisper.cpp models in
-``~/.cache/drama_subtitler/models/`` so neither end users (CLI) nor
+``~/.cache/media_subtitler/models/`` so neither end users (CLI) nor
 embedders (nasorg) need to manage the file by hand.
 
 A single function — :func:`ensure_whispercpp_model` — is the public
@@ -19,8 +19,8 @@ from typing import Optional
 
 
 MODEL_CACHE_DIR = Path(
-    os.environ.get("DRAMA_SUBTITLER_MODEL_DIR")
-    or (Path.home() / ".cache" / "drama_subtitler" / "models")
+    os.environ.get("MEDIA_SUBTITLER_MODEL_DIR")
+    or (Path.home() / ".cache" / "media_subtitler" / "models")
 ).expanduser()
 
 # Resolved upstream URLs for the ggml whisper.cpp models hosted by the
@@ -61,7 +61,7 @@ def _download(url: str, dest: Path) -> None:
                 if total and sys.stderr.isatty():
                     pct = 100 * done / total
                     sys.stderr.write(
-                        f"\rdrama_subtitler: downloading {dest.name} "
+                        f"\rmedia_subtitler: downloading {dest.name} "
                         f"{done / 1e6:6.0f} / {total / 1e6:6.0f} MB ({pct:5.1f}%)"
                     )
                     sys.stderr.flush()
@@ -83,8 +83,8 @@ def ensure_whispercpp_model(name: str = "large-v3") -> Path:
     Resolution order:
 
     1. ``$WHISPER_CPP_MODEL_PATH`` env var, if set and pointing at a file.
-    2. ``$DRAMA_SUBTITLER_MODEL_DIR/ggml-<name>.bin`` (or the standard
-       ``~/.cache/drama_subtitler/models/`` location).
+    2. ``$MEDIA_SUBTITLER_MODEL_DIR/ggml-<name>.bin`` (or the standard
+       ``~/.cache/media_subtitler/models/`` location).
     3. Download the canonical Hugging Face URL into the cache dir.
 
     ``name`` may be a known size (``"large-v3"``) or an absolute path /
@@ -118,7 +118,7 @@ def ensure_whispercpp_model(name: str = "large-v3") -> Path:
 
     url = KNOWN_MODELS[name]
     sys.stderr.write(
-        f"drama_subtitler: model {name!r} not in cache; downloading from {url}\n"
+        f"media_subtitler: model {name!r} not in cache; downloading from {url}\n"
     )
     _download(url, dest)
     return dest.resolve()
@@ -148,9 +148,9 @@ def model_status(name: str = "large-v3") -> dict:
 
 
 def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover - thin CLI
-    """Tiny CLI: ``python -m drama_subtitler.models download large-v3``."""
+    """Tiny CLI: ``python -m media_subtitler.models download large-v3``."""
     import argparse
-    p = argparse.ArgumentParser(prog="drama_subtitler.models")
+    p = argparse.ArgumentParser(prog="media_subtitler.models")
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("download")
     d.add_argument("name", nargs="?", default="large-v3")

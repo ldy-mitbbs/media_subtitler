@@ -130,7 +130,7 @@ class TestOllamaIntegration:
     def test_ollama_full_process_mocked_whisper(self, tmp_path, ollama_model):
         """端到端：mock Whisper 语音识别，用真实 Ollama 翻译。
         只用 1 条极短字幕，避免大模型冷启动超时。"""
-        media = tmp_path / "ep01.mp4"
+        media = tmp_path / "sample01.mp4"
         media.write_bytes(b"fake")
         orig_srt = media.with_suffix(".orig.srt")
         orig_srt.write_text(
@@ -160,7 +160,7 @@ class TestOllamaIntegration:
 
     def test_ollama_two_phase_workflow(self, tmp_path, ollama_model):
         """Web 端两阶段流程：先语音识别，后翻译。"""
-        media = tmp_path / "ep01.mp4"
+        media = tmp_path / "sample01.mp4"
         media.write_bytes(b"fake")
         orig_srt = media.with_suffix(".orig.srt")
         orig_srt.write_text(

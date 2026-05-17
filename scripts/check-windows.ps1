@@ -28,7 +28,7 @@ Write-Host ""
 Write-Host "Python package imports:"
 $ImportCheck = @'
 import importlib
-mods = ["flask", "requests", "faster_whisper", "drama_subtitler"]
+mods = ["flask", "requests", "faster_whisper", "media_subtitler"]
 for name in mods:
     try:
         importlib.import_module(name)

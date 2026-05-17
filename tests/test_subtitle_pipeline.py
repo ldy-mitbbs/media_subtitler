@@ -123,7 +123,7 @@ def test_translate_segments_emits_source_plus_target(mocker):
 
 
 def test_process_skip_transcription_uses_existing_orig_srt(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
     orig_srt = media_path.with_suffix(".orig.srt")
@@ -170,7 +170,7 @@ def test_process_skip_transcription_uses_existing_orig_srt(tmp_path, mocker):
 
 
 def test_process_skip_transcription_requires_existing_orig_srt(tmp_path):
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline()
@@ -180,7 +180,7 @@ def test_process_skip_transcription_requires_existing_orig_srt(tmp_path):
 
 
 def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mkv"
+    media_path = tmp_path / "sample01.mkv"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline(TRANSLATION_CHUNK_SIZE=10)
@@ -233,7 +233,7 @@ def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
 
 
 def test_process_stops_when_embedded_subtitle_extract_fails(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mkv"
+    media_path = tmp_path / "sample01.mkv"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline(TRANSLATION_CHUNK_SIZE=10)
@@ -268,7 +268,7 @@ def test_process_stops_when_embedded_subtitle_extract_fails(tmp_path, mocker):
 
 
 def test_arib_caption_requires_ffmpeg_decoder(tmp_path, mocker):
-    media_path = tmp_path / "ep01.ts"
+    media_path = tmp_path / "sample01.ts"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline()
@@ -297,7 +297,7 @@ def test_arib_caption_requires_ffmpeg_decoder(tmp_path, mocker):
 
 
 def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
-    media_path = tmp_path / "ep01.ts"
+    media_path = tmp_path / "sample01.ts"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline()
@@ -342,7 +342,7 @@ def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
 
 
 def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline()
@@ -367,7 +367,7 @@ def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
 
 
 def test_remote_faster_whisper_backend_posts_audio_and_writes_srt(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline(
@@ -409,7 +409,7 @@ def test_remote_faster_whisper_backend_posts_audio_and_writes_srt(tmp_path, mock
 
 
 def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
     pipeline = _pipeline(
@@ -456,7 +456,7 @@ def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
 def test_start_translation_resumes_with_overrides(tmp_path, mocker):
     from app.models.subtitle_pipeline import SubtitleJobManager
 
-    media_path = tmp_path / "ep01.mp4"
+    media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
     orig_srt = media_path.with_suffix(".orig.srt")
     orig_srt.write_text(

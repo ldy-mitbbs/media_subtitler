@@ -6,7 +6,7 @@ Run this on your gaming PC (the one with the NVIDIA GPU):
     pip install faster-whisper flask
     python whisper-server.py --host 0.0.0.0 --port 5051
 
-Then set drama_subtitler's GPU_BASE_URL to http://<pc-ip> (whisper is reached at port 5051).
+Then set media_subtitler's GPU_BASE_URL to http://<pc-ip> (whisper is reached at port 5051).
 """
 from __future__ import annotations
 

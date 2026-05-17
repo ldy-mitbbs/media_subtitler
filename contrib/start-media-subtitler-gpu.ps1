@@ -1,22 +1,22 @@
 <# 
-Start and check the Windows GPU services used by drama_subtitler.
+Start and check the Windows GPU services used by media_subtitler.
 
 Copy this file and contrib/whisper-server.py to the Windows PC, typically:
-  C:\tools\drama-subtitler-whisper\
+  C:\tools\media-subtitler-whisper\
 
 Common use from a full checkout:
-  cd C:\tools\drama_subtitler
-  .\contrib\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
+  cd C:\tools\media_subtitler
+  .\contrib\start-media-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
 
 Common use when copied with whisper-server.py to a standalone folder:
-  cd C:\tools\drama-subtitler-whisper
+  cd C:\tools\media-subtitler-whisper
   py -3.12 -m venv .venv
   .\.venv\Scripts\Activate.ps1
   pip install faster-whisper flask
-  .\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
+  .\start-media-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
 
 Health check only:
-  .\start-drama-subtitler-gpu.ps1 -HealthOnly -OllamaModel qwen2.5:14b
+  .\start-media-subtitler-gpu.ps1 -HealthOnly -OllamaModel qwen2.5:14b
 #>
 
 param(
@@ -102,16 +102,16 @@ if (-not $Python) {
 $Server = Join-Path $WhisperDir "whisper-server.py"
 $LanIp = Get-LanIpHint
 
-Write-Host "drama_subtitler GPU helper"
+Write-Host "media_subtitler GPU helper"
 Write-Host "Whisper dir: $WhisperDir"
 Write-Host "LAN IP:      $LanIp"
 Write-Host "Mac GPU_BASE_URL should be: http://$LanIp"
 
 if (-not $SkipWhisper) {
-  Ensure-FirewallRule -Name "drama-subtitler-whisper" -Port $WhisperPort
+  Ensure-FirewallRule -Name "media-subtitler-whisper" -Port $WhisperPort
 }
 if (-not $SkipOllama) {
-  Ensure-FirewallRule -Name "drama_subtitler-ollama" -Port $OllamaPort
+  Ensure-FirewallRule -Name "media_subtitler-ollama" -Port $OllamaPort
 }
 
 if (-not $SkipOllama) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""CLI entry point for the drama subtitle pipeline."""
+"""CLI entry point for the subtitle pipeline."""
 
 import argparse
 import os
@@ -95,7 +95,7 @@ def main():
     load_env_files()
 
     parser = argparse.ArgumentParser(
-        description="Transcribe Japanese / Korean drama videos and emit bilingual SRT subtitles."
+        description="Transcribe Japanese / Korean media files and emit bilingual SRT subtitles."
     )
     parser.add_argument("input", help="Input media path or filename inside MEDIA_DIR")
     parser.add_argument(

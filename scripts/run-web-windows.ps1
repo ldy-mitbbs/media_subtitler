@@ -1,5 +1,5 @@
 <#
-Run the drama_subtitler Flask UI on Windows from a fresh checkout.
+Run the media_subtitler Flask UI on Windows from a fresh checkout.
 
 Usage:
   .\scripts\run-web-windows.ps1
