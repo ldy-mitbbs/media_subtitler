@@ -15,6 +15,7 @@ import time
 import tempfile
 import uuid
 import collections
+import queue
 from fractions import Fraction
 from locale import getpreferredencoding
 from pathlib import Path
@@ -619,6 +620,15 @@ class SubtitlePipeline:
         self.translation_model = config.get("TRANSLATION_MODEL", "deepseek-v4-flash")
         self.translation_chunk_size = int(config.get("TRANSLATION_CHUNK_SIZE", 20))
         self.translation_timeout = int(config.get("TRANSLATION_TIMEOUT", 120))
+        self.embedded_subtitle_timeout = int(
+            config.get("EMBEDDED_SUBTITLE_TIMEOUT", 600) or 0
+        )
+        self.embedded_subtitle_idle_timeout = int(
+            config.get("EMBEDDED_SUBTITLE_IDLE_TIMEOUT", 0) or 0
+        )
+        self.fallback_on_embedded_subtitle_error = bool(
+            config.get("FALLBACK_ON_EMBEDDED_SUBTITLE_ERROR", False)
+        )
 
         # Languages
         self.target_language = str(config.get("TARGET_LANGUAGE", "zh")).strip().lower() or "zh"
@@ -679,6 +689,7 @@ class SubtitlePipeline:
         media_path = Path(media_path)
         if not media_path.exists():
             raise FileNotFoundError(f"Media file not found: {media_path}")
+        self._active_cancel_event = cancel_event
 
         target_lang = (
             (target_language or "").strip().lower() or self.target_language
@@ -719,20 +730,33 @@ class SubtitlePipeline:
                 if progress_cb:
                     label = embedded_subtitle.get("label") or "embedded subtitle"
                     progress_cb(10, f"Found {label}; extracting subtitles")
-                segments, source_language = self._extract_embedded_subtitle(
-                    media_path,
-                    embedded_subtitle,
-                    original_srt,
-                    progress_cb=progress_cb,
-                    language_hint=source_language_hint,
-                )
-                segments = self._repair_mojibake_segments(segments)
-                segments = _dedupe_repeated_segments(segments)
-                if progress_cb:
-                    progress_cb(
-                        55,
-                        f"Using embedded subtitles ({len(segments)} segments)",
+                try:
+                    segments, source_language = self._extract_embedded_subtitle(
+                        media_path,
+                        embedded_subtitle,
+                        original_srt,
+                        progress_cb=progress_cb,
+                        language_hint=source_language_hint,
                     )
+                except Exception as exc:
+                    if not self.fallback_on_embedded_subtitle_error:
+                        raise
+                    segments = []
+                    source_language = None
+                    if progress_cb:
+                        progress_cb(
+                            None,
+                            "Embedded subtitle extraction did not finish; "
+                            f"falling back to transcription ({exc})",
+                        )
+                else:
+                    segments = self._repair_mojibake_segments(segments)
+                    segments = _dedupe_repeated_segments(segments)
+                    if progress_cb:
+                        progress_cb(
+                            55,
+                            f"Using embedded subtitles ({len(segments)} segments)",
+                        )
 
             if not segments:
                 if progress_cb:
@@ -1168,6 +1192,7 @@ class SubtitlePipeline:
             cmd = [
                 ffmpeg_path,
                 "-y",
+                "-nostdin",
                 "-hide_banner",
                 "-loglevel",
                 "error",
@@ -1177,11 +1202,20 @@ class SubtitlePipeline:
                 f"0:{subtitle_stream['index']}",
                 "-c:s",
                 "srt",
+                "-progress",
+                "pipe:1",
                 str(temp_srt),
             ]
-            completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if completed.returncode != 0:
-                msg = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()
+            returncode, output = self._run_ffmpeg_command(
+                cmd,
+                label="Extracting embedded subtitles",
+                progress_cb=progress_cb,
+                timeout=self.embedded_subtitle_timeout,
+                idle_timeout=self.embedded_subtitle_idle_timeout,
+                cancel_event=getattr(self, "_active_cancel_event", None),
+            )
+            if returncode != 0:
+                msg = (output or "unknown ffmpeg error").strip()
                 raise RuntimeError(f"ffmpeg subtitle extraction failed: {msg[:500]}")
 
             segments = clean_extracted_subtitle_segments(read_srt(temp_srt))
@@ -1224,6 +1258,113 @@ class SubtitlePipeline:
             SubtitlePipeline._ffmpeg_has_decoder("arib_caption")
             or SubtitlePipeline._ffmpeg_has_decoder("libaribcaption")
         )
+
+    @staticmethod
+    def _run_ffmpeg_command(
+        cmd,
+        *,
+        label="Running ffmpeg",
+        progress_cb=None,
+        timeout=0,
+        idle_timeout=0,
+        cancel_event=None,
+    ):
+        """Run ffmpeg while pulsing progress so long media jobs don't look stuck."""
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+        )
+        started = time.monotonic()
+        last_pulse = 0.0
+        last_output_activity = started
+        last_output_size = -1
+        output_lines = []
+        output_path = Path(cmd[-1]) if cmd else None
+        line_queue = queue.Queue()
+
+        def read_output():
+            try:
+                for line in proc.stdout:  # type: ignore[union-attr]
+                    line_queue.put(line)
+            finally:
+                line_queue.put(None)
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+
+        def pulse(message):
+            nonlocal last_pulse
+            now = time.monotonic()
+            if progress_cb and now - last_pulse >= 2:
+                progress_cb(None, message)
+                last_pulse = now
+
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    return 130, "cancelled"
+
+                if timeout and time.monotonic() - started > timeout:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    return 124, f"{label} timed out after {timeout}s"
+
+                now = time.monotonic()
+                if output_path is not None and output_path.exists():
+                    try:
+                        output_size = output_path.stat().st_size
+                    except OSError:
+                        output_size = last_output_size
+                    if output_size != last_output_size:
+                        last_output_size = output_size
+                        last_output_activity = now
+
+                if idle_timeout and now - last_output_activity > idle_timeout:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    return 125, f"{label} made no output for {idle_timeout}s"
+
+                elapsed = int(now - started)
+                if elapsed and elapsed % 10 == 0:
+                    pulse(f"{label}: still running ({elapsed}s elapsed)")
+
+                try:
+                    line = line_queue.get(timeout=0.2)
+                except queue.Empty:
+                    line = ""
+                if line is None:
+                    proc.wait(timeout=5)
+                    break
+                if line:
+                    line = line.strip()
+                    if line:
+                        output_lines.append(line)
+                    if line.startswith("out_time="):
+                        pulse(f"{label}: {line.split('=', 1)[1]}")
+                    elif line.startswith("out_time_ms="):
+                        try:
+                            seconds = int(line.split("=", 1)[1]) / 1_000_000
+                            pulse(f"{label}: {format_srt_timestamp(seconds)}")
+                        except ValueError:
+                            pass
+                    elif line.startswith("progress="):
+                        pulse(f"{label}: {line.split('=', 1)[1]}")
+                    continue
+
+                returncode = proc.poll()
+                if returncode is not None:
+                    break
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+            reader.join(timeout=2)
+
+        return proc.returncode, "\n".join(output_lines[-20:])
 
     def _transcribe_with_remote_faster_whisper(self, media_path, progress_cb=None, language_hint=None):
         server_url = (self.remote_whisper_base_url or "").rstrip("/")
@@ -1398,7 +1539,12 @@ class SubtitlePipeline:
             if progress_cb:
                 progress_cb(5, "Extracting audio for whisper.cpp")
 
-            self._extract_audio_for_whispercpp(media_path, wav_path)
+            self._extract_audio_for_whispercpp(
+                media_path,
+                wav_path,
+                progress_cb=progress_cb,
+                cancel_event=getattr(self, "_active_cancel_event", None),
+            )
 
             if progress_cb:
                 progress_cb(10, f"Running whisper.cpp ({self.whisper_model_name})")
@@ -1625,8 +1771,13 @@ class SubtitlePipeline:
             f"{searched}"
         )
 
-    @staticmethod
-    def _extract_audio_for_whispercpp(media_path, wav_path):
+    def _extract_audio_for_whispercpp(
+        self,
+        media_path,
+        wav_path,
+        progress_cb=None,
+        cancel_event=None,
+    ):
         ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for whisper.cpp")
@@ -1634,24 +1785,32 @@ class SubtitlePipeline:
         cmd = [
             ffmpeg_path,
             "-y",
+            "-nostdin",
+            "-hide_banner",
             "-i",
             str(media_path),
+            "-vn",
             "-ar",
             "16000",
             "-ac",
             "1",
             "-c:a",
             "pcm_s16le",
+            "-progress",
+            "pipe:1",
             str(wav_path),
         ]
-        completed = subprocess.run(cmd, capture_output=True, check=False)
-        if completed.returncode != 0:
-            stderr = (
-                completed.stderr.decode("utf-8", errors="replace").strip()
-                or completed.stdout.decode("utf-8", errors="replace").strip()
-                or "unknown ffmpeg error"
+        returncode, output = self._run_ffmpeg_command(
+            cmd,
+            label="Extracting audio for whisper.cpp",
+            progress_cb=progress_cb,
+            timeout=600,
+            cancel_event=cancel_event,
+        )
+        if returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg audio extraction failed: {(output or 'unknown ffmpeg error')[:500]}"
             )
-            raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
 
     @staticmethod
     def _run_ffmpeg_progress(cmd, *, label: str = "Extracting audio", progress_cb=None):
