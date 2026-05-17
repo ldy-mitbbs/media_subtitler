@@ -48,7 +48,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y curl ffmpeg tar xz-utils
+
+      - name: Install ARIB-capable FFmpeg
+        run: |
+          sudo mkdir -p /opt/ffmpeg
+          curl -fsSL \
+            https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz \
+            | sudo tar -xJ --strip-components=1 -C /opt/ffmpeg
+          echo "/opt/ffmpeg/bin" >> "$GITHUB_PATH"
+          /opt/ffmpeg/bin/ffmpeg -hide_banner -decoders | grep -E "libaribcaption|libaribb24|arib_caption"
 
       - name: Install dependencies
         run: |
@@ -67,8 +76,18 @@ jobs:
           path: ~/.ollama/models
           key: ollama-${{ runner.os }}-${{ env.OLLAMA_TEST_MODEL }}
 
-      - name: Setup Ollama
-        uses: ollama/setup-ollama@v1
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > /tmp/ollama.log 2>&1 &
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/ollama.log
+          exit 1
 
       - name: Pull test model
         run: ollama pull "$OLLAMA_TEST_MODEL"
