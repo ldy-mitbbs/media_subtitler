@@ -34,20 +34,38 @@ jobs:
         run: pytest -v -m "not integration"
 
   integration-ollama:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-integration]')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       OLLAMA_TEST_MODEL: qwen2.5:0.5b
+      FASTER_WHISPER_TEST_MODEL: tiny
+      FASTER_WHISPER_TEST_DEVICE: cpu
+      FASTER_WHISPER_TEST_COMPUTE_TYPE: int8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,webapp]"
+
+      - name: Cache faster-whisper models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: faster-whisper-${{ runner.os }}-${{ env.FASTER_WHISPER_TEST_MODEL }}
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ runner.os }}-${{ env.OLLAMA_TEST_MODEL }}
 
       - name: Setup Ollama
         uses: ollama/setup-ollama@v1
@@ -57,7 +75,6 @@ jobs:
 
       - name: Run Ollama integration tests
         run: pytest -v --run-integration --run-slow -m "ollama"
-        timeout-minutes: 10
 
   integration-openrouter:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-integration]')
