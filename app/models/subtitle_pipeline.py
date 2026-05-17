@@ -2578,7 +2578,7 @@ class SubtitleJobManager:
                     job_id,
                     status="awaiting_translation",
                     progress=55,
-                    message="Transcription complete; choose a translation model",
+                    message="语音识别完成；可继续翻译（不填模型则使用默认值）",
                     result=result,
                 )
             else:
@@ -2744,7 +2744,7 @@ class SubtitleJobManager:
                 job_id,
                 status="awaiting_translation",
                 progress=55,
-                message="Translation failed; pick a model and retry",
+                message="翻译失败；可调整模型后重试，或留空使用默认值",
                 error=str(exc),
             )
 

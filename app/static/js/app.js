@@ -831,7 +831,7 @@
 
     panel.innerHTML = `
       <div class="row">
-        <strong>选择翻译模型</strong>
+        <strong>继续翻译</strong>
         <span class="hint job-pricing"></span>
       </div>
       <div class="row">
@@ -851,9 +851,9 @@
           批次大小
           <input type="number" class="job-chunk" min="1" max="50" step="1" size="3">
         </label>
-        <button type="button" class="primary job-translate-btn">翻译</button>
+        <button type="button" class="primary job-translate-btn">继续翻译</button>
       </div>
-      <div class="hint job-estimate"></div>
+      <div class="hint job-estimate">不填写模型时会使用默认翻译模型。</div>
     `;
     actions.appendChild(panel);
 
