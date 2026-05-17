@@ -19,7 +19,7 @@ def test_estimate_from_segments_scales_with_chars():
 
 
 def test_estimate_tokens_uses_orig_srt_when_present(tmp_path):
-    media = tmp_path / "ep01.mp4"
+    media = tmp_path / "sample01.mp4"
     media.write_bytes(b"fake")
     srt = media.with_suffix(".orig.srt")
     srt.write_text(
@@ -39,7 +39,7 @@ def test_estimate_tokens_uses_orig_srt_when_present(tmp_path):
 
 
 def test_estimate_tokens_unknown_when_no_srt_and_no_ffprobe(tmp_path, monkeypatch):
-    media = tmp_path / "ep02.mp4"
+    media = tmp_path / "sample02.mp4"
     media.write_bytes(b"fake")
 
     # Force ffprobe lookup to fail.

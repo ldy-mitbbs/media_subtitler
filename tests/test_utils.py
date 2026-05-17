@@ -166,7 +166,7 @@ class TestBilingualASS:
             lambda *args, **kwargs: Completed(),
         )
 
-        assert detect_video_play_res(tmp_path / "episode.ts") == (1440, 1080)
+        assert detect_video_play_res(tmp_path / "sample.ts") == (1440, 1080)
 
     def test_detect_video_play_res_uses_display_width_for_anamorphic_video(
         self, monkeypatch, tmp_path
@@ -184,7 +184,7 @@ class TestBilingualASS:
             lambda *args, **kwargs: Completed(),
         )
 
-        assert detect_video_play_res(tmp_path / "episode.ts") == (1920, 1080)
+        assert detect_video_play_res(tmp_path / "sample.ts") == (1920, 1080)
 
 
 # ------------------------------------------------------------------ dedupe
@@ -582,13 +582,13 @@ class TestJobManagerBasics:
         cfg = {"MEDIA_DIR": str(tmp_path)}
         manager = SubtitleJobManager(cfg)
 
-        (tmp_path / "show" / "season1").mkdir(parents=True)
-        (tmp_path / "show" / "season1" / "ep01.mkv").write_text("fake")
-        (tmp_path / "show" / "ep02.mp4").write_text("fake")
+        (tmp_path / "collection" / "part1").mkdir(parents=True)
+        (tmp_path / "collection" / "part1" / "sample01.mkv").write_text("fake")
+        (tmp_path / "collection" / "sample02.mp4").write_text("fake")
         (tmp_path / "readme.txt").write_text("not media")
 
         files = manager.list_media_files()
-        assert sorted(files) == ["show/ep02.mp4", "show/season1/ep01.mkv"]
+        assert sorted(files) == ["collection/part1/sample01.mkv", "collection/sample02.mp4"]
 
     def test_start_and_get_job(self, tmp_path):
         media = tmp_path / "vid.mp4"

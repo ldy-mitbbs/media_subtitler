@@ -340,7 +340,7 @@ def _open_media_with_player(media_path, subtitle_path=None):
 
 
 def _finder_shortcut_app_path():
-    return Path.home() / "Applications" / "Drama Subtitler Start Job.app"
+    return Path.home() / "Applications" / "Media Subtitler Start Job.app"
 
 
 def _finder_shortcut_installer_path():

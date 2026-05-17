@@ -5,11 +5,11 @@ Two sources are supported:
 1. Existing ``.orig.srt`` next to the media file — we know the exact subtitle
    text, so we can produce a fairly accurate token estimate.
 2. ffprobe duration only — we fall back to a heuristic based on average
-   drama subtitle density (~6 lines / minute, ~18 chars / line).
+   subtitle density (~6 lines / minute, ~18 chars / line).
 
 Token counts are approximations only: real tokenizers vary across providers.
 We use a conservative average of 2 characters per token (CJK leans toward
-~1.5, Latin scripts toward ~4; drama dialogue is mixed).
+~1.5, Latin scripts toward ~4; spoken dialogue is mixed).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from app.models.subtitle_pipeline import read_srt
 _PROMPT_OVERHEAD_TOKENS_PER_CHUNK = 220
 # Per-line JSON wrapping overhead inside the user payload.
 _PER_LINE_OVERHEAD_TOKENS = 6
-# Average chars per token for mixed CJK + Latin drama dialogue.
+# Average chars per token for mixed CJK + Latin spoken dialogue.
 _CHARS_PER_TOKEN = 2.0
 # Heuristic when only duration is known.
 _LINES_PER_MINUTE = 6.0

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Flask launcher for drama_subtitler."""
+"""Flask launcher for media_subtitler."""
 
 import argparse
 from pathlib import Path
@@ -36,7 +36,7 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Drama Subtitler web UI")
+    parser = argparse.ArgumentParser(description="Media Subtitler web UI")
     parser.add_argument("--port", type=int, default=5050, help="Web server port")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host")
     parser.add_argument("--media-dir", help="Override MEDIA_DIR")
@@ -50,6 +50,6 @@ if __name__ == "__main__":
     if args.browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
-    print(f"Starting drama_subtitler at {url}")
+    print(f"Starting media_subtitler at {url}")
     print(f"MEDIA_DIR: {app.config['MEDIA_DIR']}")
     app.run(host=args.host, port=args.port, debug=False)

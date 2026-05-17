@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drama_subtitler"
+name = "media_subtitler"
 version = "0.1.0"
-description = "Whisper-based bilingual subtitle pipeline for Japanese/Korean drama."
+description = "Whisper-based bilingual subtitle pipeline for Japanese/Korean media."
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
@@ -32,12 +32,12 @@ qwen-asr = [
 ]
 
 [project.scripts]
-drama-subtitler-models = "drama_subtitler.models:main"
-drama-subtitler-whisper-server = "drama_subtitler.remote_whisper_server:main"
+media-subtitler-models = "media_subtitler.models:main"
+media-subtitler-whisper-server = "media_subtitler.remote_whisper_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["drama_subtitler*"]
+include = ["media_subtitler*"]
 exclude = ["app*", "tests*", "media*"]
 
 [tool.pytest.ini_options]

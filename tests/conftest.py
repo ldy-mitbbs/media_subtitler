@@ -5,8 +5,8 @@ import tempfile
 # Add the project root to sys.path so `app` and `config` are importable.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-_settings_dir = tempfile.TemporaryDirectory(prefix="drama-subtitler-tests-")
-os.environ["DRAMA_SUBTITLER_SETTINGS_PATH"] = os.path.join(
+_settings_dir = tempfile.TemporaryDirectory(prefix="media-subtitler-tests-")
+os.environ["MEDIA_SUBTITLER_SETTINGS_PATH"] = os.path.join(
     _settings_dir.name,
     "settings.json",
 )

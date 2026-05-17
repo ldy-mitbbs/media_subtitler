@@ -1,7 +1,7 @@
-"""Subtitle pipeline for Japanese / Korean drama dialogue.
+"""Subtitle pipeline for Japanese / Korean spoken dialogue.
 
 Produces bilingual SRT files: original transcript + translated line per cue.
-Prompts are tuned for natural drama dialogue rather than generic copy.
+Prompts are tuned for natural spoken dialogue rather than generic copy.
 """
 
 import html
@@ -560,7 +560,7 @@ def clean_extracted_subtitle_text(text):
 
 class SubtitlePipeline:
     def __init__(self, config):
-        # Accept either MEDIA_DIR (drama_subtitler) or DOWNLOAD_DIR (legacy).
+        # Accept either MEDIA_DIR (media_subtitler) or DOWNLOAD_DIR (legacy).
         media_dir = config.get("MEDIA_DIR") or config.get("DOWNLOAD_DIR") or "media"
         self.media_dir = Path(media_dir)
 
@@ -859,7 +859,7 @@ class SubtitlePipeline:
             raise RuntimeError("ffmpeg is required to prepare audio for Qwen3-ASR")
 
         chunk_seconds = max(15, int(self.qwen_asr_chunk_seconds or 90))
-        with tempfile.TemporaryDirectory(prefix="drama-subtitler-qwen-asr-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-qwen-asr-") as temp_dir:
             temp_dir_path = Path(temp_dir)
             audio_path = temp_dir_path / "audio.wav"
             if progress_cb:
@@ -1237,7 +1237,7 @@ class SubtitlePipeline:
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for remote faster-whisper")
 
-        with tempfile.TemporaryDirectory(prefix="drama-subtitler-remote-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-remote-") as temp_dir:
             temp_dir_path = Path(temp_dir)
             wav_path = temp_dir_path / "audio.wav"
 
@@ -1390,7 +1390,7 @@ class SubtitlePipeline:
 
         model_path = self._resolve_whispercpp_model_path(media_path)
 
-        with tempfile.TemporaryDirectory(prefix="drama-subtitler-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-") as temp_dir:
             temp_dir_path = Path(temp_dir)
             wav_path = temp_dir_path / "input.wav"
             output_base = temp_dir_path / "transcription"
@@ -1699,7 +1699,7 @@ class SubtitlePipeline:
 
         max_bytes = 25 * 1024 * 1024
 
-        with tempfile.TemporaryDirectory(prefix="drama-subtitler-openai-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-openai-") as temp_dir:
             temp_dir_path = Path(temp_dir)
             audio_path = temp_dir_path / "audio.mp3"
 
@@ -1773,7 +1773,7 @@ class SubtitlePipeline:
                 data["language"] = language_hint
 
             if progress_cb:
-                progress_cb(10, "Waiting for OpenAI Whisper API (this may take 2–5 min for a full episode)...")
+                progress_cb(10, "Waiting for OpenAI Whisper API (this may take 2–5 min for a full media file)...")
 
             # Pulse a heartbeat message every 10 s so the UI doesn't look frozen
             # while requests.post blocks on the upload + server-side processing.
@@ -2035,11 +2035,11 @@ class SubtitlePipeline:
         target_name = LANGUAGE_NAMES.get(target_lang, target_lang)
 
         prompt = (
-            f"You are translating subtitles from {source_name} drama dialogue into {target_name}. "
+            f"You are translating subtitles from {source_name} spoken dialogue into {target_name}. "
             "Return strict JSON only with this shape: "
             "{\"items\": [{\"target\": \"...\"}]}. "
             "Each item corresponds to one input subtitle line, in order. "
-            "Translate the meaning naturally for spoken drama dialogue: keep emotion, tone, and "
+            "Translate the meaning naturally for spoken subtitles: keep emotion, tone, and "
             "pacing; avoid literal word-for-word renderings. Use polite or casual register to "
             "match the speaker. Keep proper nouns intact. Do not add explanations, notes, "
             "stage directions, speaker labels, or quotation marks."
@@ -2048,7 +2048,7 @@ class SubtitlePipeline:
             {
                 "role": "system",
                 "content": (
-                    f"You are a professional drama subtitle translator. "
+                    f"You are a professional subtitle translator. "
                     f"Source language: {source_name}. Target language: {target_name}. "
                     "Output must be valid JSON only."
                 ),
@@ -2131,7 +2131,7 @@ class SubtitlePipeline:
             {
                 "role": "system",
                 "content": (
-                    f"Translate this {source_name} drama subtitle into {target_name}. "
+                    f"Translate this {source_name} subtitle into {target_name}. "
                     "Keep wording natural and concise for spoken subtitles. "
                     "Return JSON only: {\"target\":\"...\"}."
                 ),

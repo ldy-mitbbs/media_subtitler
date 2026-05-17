@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>剧集字幕工具</title>
+  <title>本地媒体字幕工具</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
 <header>
-  <h1>剧集字幕工具</h1>
+  <h1>本地媒体字幕工具</h1>
   <p class="subtitle">
     识别任意视频中的语音，并在任意支持的语言之间翻译字幕。
   </p>
@@ -58,7 +58,7 @@
           <div class="settings-row">
             <div class="settings-field">
               <label for="setting-openrouter-app-title">OpenRouter App Title</label>
-              <input id="setting-openrouter-app-title" type="text" placeholder="drama_subtitler">
+              <input id="setting-openrouter-app-title" type="text" placeholder="media_subtitler">
             </div>
           </div>
         </div>
@@ -287,7 +287,7 @@
     <div class="form-row">
       <label for="local-path">本地文件路径</label>
       <div class="row file-picker-row">
-        <input id="local-path" type="text" placeholder="/Volumes/Drama/episode.mkv">
+        <input id="local-path" type="text" placeholder="/Users/me/Media/sample.mkv">
         <button id="choose-local" type="button">选择文件</button>
       </div>
       <div class="hint" id="estimate-hint"></div>

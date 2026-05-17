@@ -1,4 +1,4 @@
-# drama_subtitler
+# media_subtitler
 
 用 Whisper 将视频对白转成文字，再用 LLM 翻译成双语字幕（原文 + 译文）。
 
@@ -42,8 +42,8 @@ pip install -r requirements.txt
 在 PowerShell 里：
 
 ```powershell
-git clone <repo-url> drama_subtitler
-cd drama_subtitler
+git clone <repo-url> media_subtitler
+cd media_subtitler
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup-windows.ps1
 ```
@@ -88,7 +88,7 @@ Windows 自检：
 系统依赖：
 
 - `ffmpeg` 必须在 `PATH` 中（本地/远程 ASR 和内嵌字幕提取都需要）。
-- 如果要直接复用日本电视 TS 文件里的 `[字]` 字幕，`ffmpeg` 还需要支持
+- 如果要直接复用合法来源的 TS 文件里的 `[字]` 字幕，`ffmpeg` 还需要支持
   `arib_caption` 解码。普通 Homebrew `ffmpeg` 可能没有这个解码器；macOS
   可使用支持 `--with-libaribcaption` 的 ffmpeg 构建，或自行编译带
   `libaribcaption` 的 ffmpeg。
@@ -102,25 +102,25 @@ Windows 自检：
 
 ```bash
 # 语音转文字 + 翻译（自动识别源语言）
-python subtitle_pipeline.py path/to/episode.mkv
+python subtitle_pipeline.py path/to/sample.mkv
 
 # 也可以传入文件名，程序会相对 MEDIA_DIR 解析
-python subtitle_pipeline.py episode.mkv
+python subtitle_pipeline.py sample.mkv
 
 # 复用已有转文字结果重新翻译
-python subtitle_pipeline.py episode.mkv --skip-transcription
+python subtitle_pipeline.py sample.mkv --skip-transcription
 
 # 强制指定源语言
-python subtitle_pipeline.py episode.mkv --source-language ko
+python subtitle_pipeline.py sample.mkv --source-language ko
 
 # 切换目标语言
-python subtitle_pipeline.py episode.mkv --target-language en
+python subtitle_pipeline.py sample.mkv --target-language en
 
 # 调试时实时查看模型流式输出
-python subtitle_pipeline.py episode.mkv --show-translation-stream
+python subtitle_pipeline.py sample.mkv --show-translation-stream
 
 # 使用局域网 Windows/NVIDIA 机器转文字，且用同一台机器的 Ollama 翻译
-python subtitle_pipeline.py episode.mkv \
+python subtitle_pipeline.py sample.mkv \
   --asr-backend remote-faster-whisper \
   --translation-backend ollama \
   --gpu-base-url http://192.168.1.42
@@ -129,7 +129,7 @@ python subtitle_pipeline.py episode.mkv \
 Windows PowerShell 示例：
 
 ```powershell
-.\.venv\Scripts\python.exe .\subtitle_pipeline.py "D:\Videos\episode01.mkv" `
+.\.venv\Scripts\python.exe .\subtitle_pipeline.py "D:\Videos\sample01.mkv" `
   --whisper-backend faster-whisper `
   --whisper-model large-v3 `
   --translation-backend ollama `
@@ -144,25 +144,25 @@ Windows PowerShell 示例：
 ```bash
 contrib/whisper-server.py              # 在 GPU 机器上运行的 faster-whisper HTTP 服务
 contrib/check-gpu-services.sh          # 在本机检查 Whisper :5051 和 Ollama :11434
-contrib/start-drama-subtitler-gpu.ps1  # Windows PowerShell 启动/检查脚本
+contrib/start-media-subtitler-gpu.ps1  # Windows PowerShell 启动/检查脚本
 ```
 
-Windows GPU 机器上的常见流程。如果已经在仓库根目录运行过 `.\scripts\setup-windows.ps1`，可以跳过创建虚拟环境和安装依赖，直接运行 `.\contrib\start-drama-subtitler-gpu.ps1`。GPU helper 会优先使用 `.venv`，也兼容旧的 `venv` 目录。
+Windows GPU 机器上的常见流程。如果已经在仓库根目录运行过 `.\scripts\setup-windows.ps1`，可以跳过创建虚拟环境和安装依赖，直接运行 `.\contrib\start-media-subtitler-gpu.ps1`。GPU helper 会优先使用 `.venv`，也兼容旧的 `venv` 目录。
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install faster-whisper flask
-.\contrib\start-drama-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
+.\contrib\start-media-subtitler-gpu.ps1 -OllamaModel qwen2.5:14b -WhisperModel large-v3
 ```
 
 如果是通过 pip 安装包，也可以直接运行：
 
 ```powershell
-drama-subtitler-whisper-server --host 0.0.0.0 --port 5051 --model large-v3
+media-subtitler-whisper-server --host 0.0.0.0 --port 5051 --model large-v3
 ```
 
-然后在运行 `drama_subtitler` 的机器上设置：
+然后在运行 `media_subtitler` 的机器上设置：
 
 ```bash
 GPU_BASE_URL=http://192.168.1.42
@@ -189,7 +189,7 @@ macOS Finder 右键启动任务：
 ./scripts/install-macos-finder-shortcut.sh
 ```
 
-安装后，在 Finder 里选中媒体文件，右键选择 `Open With` / `打开方式` -> `Drama Subtitler Start Job`。这个入口会把文件路径提交到本地 Web 服务；如果 `http://127.0.0.1:5050` 没有运行，会尝试自动启动 `run.py`。
+安装后，在 Finder 里选中媒体文件，右键选择 `Open With` / `打开方式` -> `Media Subtitler Start Job`。这个入口会把文件路径提交到本地 Web 服务；如果 `http://127.0.0.1:5050` 没有运行，会尝试自动启动 `run.py`。
 
 Windows:
 
@@ -197,30 +197,10 @@ Windows:
 .\scripts\run-web-windows.ps1 -Browser -MediaDir "D:\Videos"
 ```
 
-### 界面预览
-
-**设置面板** — 直接在网页里填写 API Key、远程 GPU 地址、选择默认模型，无需手动编辑 `.env`：
-
-<img src="docs/screenshots/settings.png" width="800">
-
-**新建任务** — 输入或选择本地媒体文件，选择源语言、处理方式、目标语言、语音识别后端和翻译后端：
-
-<img src="docs/screenshots/new-job.png" width="800">
-
-**任务完成** — 实时显示语音识别 / 字幕提取 + 翻译进度，完成后可下载原始字幕、双语字幕和 ASS 字幕，或一键播放视频：
-
-<img src="docs/screenshots/job-complete.png" width="800">
-
-**播放视频** — 点击「播放视频」按钮，自动调用系统默认播放器（mpv/VLC 等）打开视频，加载生成的双语字幕：
-
-<img src="docs/screenshots/video-player.png" width="800">
-
-<img src="docs/screenshots/video-player-details.png" width="800">
-
 ## 项目结构
 
 ```
-drama_subtitler/
+media_subtitler/
 ├── subtitle_pipeline.py        # CLI 入口
 ├── run.py                      # Flask 启动脚本
 ├── config.py                   # 环境变量配置
@@ -244,7 +224,7 @@ drama_subtitler/
 
 ## 法律声明 / 免责声明
 
-`drama_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT / ASS）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他技术保护措施。
+`media_subtitler` 仅从你已有的本地视频文件生成字幕文件（SRT / ASS）。它**不会**下载、托管、流媒体传输或分发任何受版权保护的内容，也不会绕过 DRM 或其他技术保护措施。
 
 你在使用本工具时完全对自己的行为负责。
 

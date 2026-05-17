@@ -1,12 +1,12 @@
 #!/bin/zsh
 set -u
 
-ROOT="${DRAMA_SUBTITLER_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-HOST="${DRAMA_SUBTITLER_HOST:-127.0.0.1}"
-PORT="${DRAMA_SUBTITLER_PORT:-5050}"
-BASE_URL="${DRAMA_SUBTITLER_URL:-http://${HOST}:${PORT}}"
-MODE="${DRAMA_SUBTITLER_MODE:-full}"
-LOG_FILE="${DRAMA_SUBTITLER_FINDER_LOG:-${ROOT}/drama-subtitler-finder.log}"
+ROOT="${MEDIA_SUBTITLER_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+HOST="${MEDIA_SUBTITLER_HOST:-127.0.0.1}"
+PORT="${MEDIA_SUBTITLER_PORT:-5050}"
+BASE_URL="${MEDIA_SUBTITLER_URL:-http://${HOST}:${PORT}}"
+MODE="${MEDIA_SUBTITLER_MODE:-full}"
+LOG_FILE="${MEDIA_SUBTITLER_FINDER_LOG:-${ROOT}/media-subtitler-finder.log}"
 
 notify() {
   local title="$1"
@@ -15,8 +15,8 @@ notify() {
 }
 
 python_bin() {
-  if [[ -n "${DRAMA_SUBTITLER_PYTHON:-}" ]]; then
-    print -r -- "$DRAMA_SUBTITLER_PYTHON"
+  if [[ -n "${MEDIA_SUBTITLER_PYTHON:-}" ]]; then
+    print -r -- "$MEDIA_SUBTITLER_PYTHON"
   elif [[ -x "${ROOT}/.venv/bin/python" ]]; then
     print -r -- "${ROOT}/.venv/bin/python"
   else
@@ -94,12 +94,12 @@ submit_file() {
 }
 
 if [[ "$#" -eq 0 ]]; then
-  notify "Drama Subtitler" "没有收到文件。请在 Finder 里选中文件后使用打开方式。"
+  notify "Media Subtitler" "没有收到文件。请在 Finder 里选中文件后使用打开方式。"
   exit 1
 fi
 
 if ! start_server_if_needed; then
-  notify "Drama Subtitler" "无法连接或启动本地服务：${BASE_URL}"
+  notify "Media Subtitler" "无法连接或启动本地服务：${BASE_URL}"
   exit 1
 fi
 
@@ -119,14 +119,14 @@ for file in "$@"; do
 done
 
 if [[ "$submitted" -gt 0 && "$failed" -eq 0 ]]; then
-  notify "Drama Subtitler" "已开始 ${submitted} 个字幕任务。"
+  notify "Media Subtitler" "已开始 ${submitted} 个字幕任务。"
   exit 0
 fi
 
 if [[ "$submitted" -gt 0 ]]; then
-  notify "Drama Subtitler" "已开始 ${submitted} 个任务，${failed} 个文件失败。"
+  notify "Media Subtitler" "已开始 ${submitted} 个任务，${failed} 个文件失败。"
   exit 0
 fi
 
-notify "Drama Subtitler" "没有成功创建任务。详情见 ${LOG_FILE}"
+notify "Media Subtitler" "没有成功创建任务。详情见 ${LOG_FILE}"
 exit 1

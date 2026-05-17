@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check the remote GPU services drama_subtitler expects:
+# Check the remote GPU services media_subtitler expects:
 #   - faster-whisper server at GPU_BASE_URL:5051
 #   - Ollama server at GPU_BASE_URL:11434
 set -euo pipefail
@@ -34,7 +34,7 @@ BASE_URL="${BASE_URL%:}"
 WHISPER_URL="${BASE_URL}:5051"
 OLLAMA_URL="${BASE_URL}:11434"
 
-echo "[drama_subtitler] GPU base: $BASE_URL"
+echo "[media_subtitler] GPU base: $BASE_URL"
 echo
 
 echo "[1/3] Whisper health: $WHISPER_URL/health"

@@ -9,7 +9,7 @@ IS_APPLE_SILICON = sys.platform == "darwin" and platform.machine() in ("arm64", 
 
 
 def _settings_path() -> Path:
-    override = os.environ.get("DRAMA_SUBTITLER_SETTINGS_PATH")
+    override = os.environ.get("MEDIA_SUBTITLER_SETTINGS_PATH")
     if override:
         return Path(override).expanduser()
     return Path(__file__).resolve().parent / "settings.json"
@@ -157,7 +157,7 @@ def _derive_ollama_url(gpu_base_url: str, settings: dict) -> str:
 
 
 class Config:
-    SECRET_KEY = _get_setting(SETTINGS, "SECRET_KEY", "dev-key-drama-subtitler")
+    SECRET_KEY = _get_setting(SETTINGS, "SECRET_KEY", "dev-key-media-subtitler")
 
     # Media library directory.
     MEDIA_DIR = _get_setting(SETTINGS, "MEDIA_DIR", "media")
@@ -203,7 +203,7 @@ class Config:
     OPENROUTER_BASE_URL = _get_setting(SETTINGS, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENROUTER_API_KEY = _get_setting(SETTINGS, "OPENROUTER_API_KEY", "")
     OPENROUTER_REFERER = _get_setting(SETTINGS, "OPENROUTER_REFERER", "")
-    OPENROUTER_APP_TITLE = _get_setting(SETTINGS, "OPENROUTER_APP_TITLE", "drama_subtitler")
+    OPENROUTER_APP_TITLE = _get_setting(SETTINGS, "OPENROUTER_APP_TITLE", "media_subtitler")
 
     DEEPSEEK_BASE_URL = _get_setting(SETTINGS, "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     DEEPSEEK_API_KEY = _get_setting(SETTINGS, "DEEPSEEK_API_KEY", "")

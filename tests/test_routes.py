@@ -22,7 +22,7 @@ class TestIndex:
     def test_index_returns_html(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert b"drama_subtitler" in resp.data or b"text/html" in resp.content_type.encode()
+        assert b"media_subtitler" in resp.data or b"text/html" in resp.content_type.encode()
 
 
 class TestApiMedia:
@@ -32,10 +32,10 @@ class TestApiMedia:
         assert resp.get_json()["files"] == []
 
     def test_lists_media_files(self, client, tmp_path):
-        (tmp_path / "ep01.mkv").write_text("fake")
+        (tmp_path / "sample01.mkv").write_text("fake")
         resp = client.get("/api/media")
         assert resp.status_code == 200
-        assert "ep01.mkv" in resp.get_json()["files"]
+        assert "sample01.mkv" in resp.get_json()["files"]
 
     def test_ignores_non_media(self, client, tmp_path):
         (tmp_path / "notes.txt").write_text("hello")
@@ -45,7 +45,7 @@ class TestApiMedia:
 
 class TestFileDialog:
     def test_open_file_dialog_returns_selected_local_path(self, client, tmp_path, mocker):
-        media = tmp_path / "ep01.mkv"
+        media = tmp_path / "sample01.mkv"
         media.write_bytes(b"fake")
         mocker.patch("app.routes._open_native_file_dialog", return_value=str(media))
 
@@ -81,7 +81,7 @@ class TestFinderShortcut:
         assert data["installed"] is False
 
     def test_finder_shortcut_installs_on_macos(self, client, tmp_path, mocker):
-        app_path = tmp_path / "Drama Subtitler Start Job.app"
+        app_path = tmp_path / "Media Subtitler Start Job.app"
         installer = tmp_path / "install.sh"
         installer.write_text("#!/bin/zsh\n", encoding="utf-8")
 
@@ -122,7 +122,7 @@ class TestApiEstimate:
         assert resp.status_code == 400
 
     def test_estimate_with_existing_orig_srt(self, client, tmp_path):
-        media = tmp_path / "ep01.mp4"
+        media = tmp_path / "sample01.mp4"
         media.write_bytes(b"fake")
         srt = media.with_suffix(".orig.srt")
         srt.write_text(
@@ -137,7 +137,7 @@ class TestApiEstimate:
         assert data["tokens"]["segment_count"] == 1
 
     def test_estimate_requires_absolute_local_path(self, client):
-        resp = client.get("/api/estimate?local_path=ep01.mp4")
+        resp = client.get("/api/estimate?local_path=sample01.mp4")
         assert resp.status_code == 400
 
 
@@ -147,7 +147,7 @@ class TestApiJobs:
         assert resp.status_code == 400
 
     def test_create_job_with_local_path(self, client, tmp_path):
-        media = tmp_path / "ep01.mkv"
+        media = tmp_path / "sample01.mkv"
         media.write_text("fake")
         resp = client.post(
             "/api/jobs",
@@ -159,8 +159,8 @@ class TestApiJobs:
         assert "job_id" in data
 
     def test_create_job_translate_only_without_orig_srt_returns_400(self, client, tmp_path):
-        (tmp_path / "ep01.mkv").write_text("fake")
-        media = tmp_path / "ep01.mkv"
+        (tmp_path / "sample01.mkv").write_text("fake")
+        media = tmp_path / "sample01.mkv"
         resp = client.post(
             "/api/jobs",
             data={"local_path": str(media), "mode": "translate"},
@@ -168,9 +168,9 @@ class TestApiJobs:
         assert resp.status_code == 400
 
     def test_create_job_translate_only_with_orig_srt(self, client, tmp_path):
-        media = tmp_path / "ep01.mkv"
+        media = tmp_path / "sample01.mkv"
         media.write_text("fake")
-        (tmp_path / "ep01.orig.srt").write_text(
+        (tmp_path / "sample01.orig.srt").write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nhi\n\n",
             encoding="utf-8",
         )
@@ -200,7 +200,7 @@ class TestApiJobs:
     def test_list_jobs_includes_jobs_started_outside_page(self, client, tmp_path):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
-        media = tmp_path / "ep01.mkv"
+        media = tmp_path / "sample01.mkv"
         media.write_bytes(b"fake")
 
         with pytest.MonkeyPatch.context() as mp:
@@ -216,7 +216,7 @@ class TestApiJobs:
 
         assert resp.status_code == 200
         assert data["success"] is True
-        assert any(job["job_id"] == job_id and job["media_file"] == "ep01.mkv" for job in data["jobs"])
+        assert any(job["job_id"] == job_id and job["media_file"] == "sample01.mkv" for job in data["jobs"])
 
     def test_job_status_not_found(self, client):
         resp = client.get("/api/jobs/no-such-id")
@@ -241,7 +241,7 @@ class TestApiTranslateJob:
     def test_translate_job_not_ready(self, client, tmp_path, mocker):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
-        media = tmp_path / "ep01.mkv"
+        media = tmp_path / "sample01.mkv"
         media.write_text("fake")
 
         # Create a job but mock process so it doesn't finish.
@@ -320,7 +320,7 @@ class TestLocalPathOnlyJobs:
     def test_relative_local_path_returns_400(self, client):
         resp = client.post(
             "/api/jobs",
-            data={"local_path": "episode.mkv", "mode": "transcribe"},
+            data={"local_path": "sample.mkv", "mode": "transcribe"},
         )
         assert resp.status_code == 400
 
@@ -410,9 +410,9 @@ class TestApiSettings:
 
 class TestServeMediaFile:
     def test_serve_existing_media_file(self, client, tmp_path):
-        video = tmp_path / "ep01.mkv"
+        video = tmp_path / "sample01.mkv"
         video.write_bytes(b"fake video")
-        resp = client.get("/api/media/files/ep01.mkv")
+        resp = client.get("/api/media/files/sample01.mkv")
         assert resp.status_code == 200
         assert resp.data == b"fake video"
 
@@ -429,9 +429,9 @@ class TestOpenJobMedia:
     def test_open_existing_media_uses_sidecar_bilingual_srt(
         self, client, tmp_path, mocker, monkeypatch
     ):
-        video = tmp_path / "ep01.mkv"
+        video = tmp_path / "sample01.mkv"
         video.write_bytes(b"fake")
-        bilingual = tmp_path / "ep01.bilingual.srt"
+        bilingual = tmp_path / "sample01.bilingual.srt"
         bilingual.write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n你好\n\n",
             encoding="utf-8",
@@ -441,7 +441,7 @@ class TestOpenJobMedia:
         mocker.patch("shutil.which", return_value="/opt/homebrew/bin/mpv")
         mock_popen = mocker.patch("subprocess.Popen")
 
-        resp = client.post("/api/media/open", data={"selected_file": "ep01.mkv"})
+        resp = client.post("/api/media/open", data={"selected_file": "sample01.mkv"})
         data = resp.get_json()
 
         assert resp.status_code == 200
@@ -453,15 +453,15 @@ class TestOpenJobMedia:
         assert f"--sub-file={bilingual}" in cmd
 
     def test_open_existing_media_rejects_invalid_path(self, client):
-        resp = client.post("/api/media/open", data={"selected_file": "../ep01.mkv"})
+        resp = client.post("/api/media/open", data={"selected_file": "../sample01.mkv"})
         assert resp.status_code == 400
 
     def test_open_job_media_happy_path(self, client, tmp_path, mocker):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
-        video = tmp_path / "ep01.mkv"
+        video = tmp_path / "sample01.mkv"
         video.write_bytes(b"fake")
-        (tmp_path / "ep01.orig.srt").write_text(
+        (tmp_path / "sample01.orig.srt").write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nhi\n\n",
             encoding="utf-8",
         )
@@ -485,9 +485,9 @@ class TestOpenJobMedia:
     ):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
-        video = tmp_path / "ep01.mkv"
+        video = tmp_path / "sample01.mkv"
         video.write_bytes(b"fake")
-        bilingual = tmp_path / "ep01.bilingual.srt"
+        bilingual = tmp_path / "sample01.bilingual.srt"
         bilingual.write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n你好\n\n",
             encoding="utf-8",
@@ -518,7 +518,7 @@ class TestOpenJobMedia:
     def test_open_job_media_missing_file(self, client, tmp_path, mocker):
         from app.models.subtitle_pipeline import SubtitlePipeline
 
-        video = tmp_path / "ep01.mkv"
+        video = tmp_path / "sample01.mkv"
         video.write_bytes(b"fake")
         mocker.patch.object(SubtitlePipeline, "process")
         resp = client.post(
