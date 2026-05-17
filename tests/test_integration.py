@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 
@@ -211,6 +213,134 @@ class TestOllamaIntegration:
         result = job["result"]
         assert Path(result["bilingual_srt"]).exists()
         assert result["usage"]["total_tokens"] > 0
+
+    def test_ollama_full_process_real_faster_whisper_smoke(self, tmp_path, ollama_model):
+        """真实端到端烟测：本地 faster-whisper ASR + 本地 Ollama 翻译。
+
+        这个测试覆盖最重要的免费本地模型链路，CI 会用 tiny Whisper 模型和
+        qwen2.5:0.5b，避免依赖付费 API 或大模型下载。
+        """
+        sample = Path("app/static/samples/japanese-smoke-test.mp4")
+        media = tmp_path / sample.name
+        shutil.copyfile(sample, media)
+
+        pipeline = _pipeline(
+            "ollama",
+            ollama_model,
+            TRANSLATION_CHUNK_SIZE=1,
+            TRANSLATION_TIMEOUT=300,
+            MEDIA_DIR=str(tmp_path),
+            ASR_BACKEND="faster-whisper",
+            ASR_MODEL=os.environ.get("FASTER_WHISPER_TEST_MODEL", "tiny"),
+            ASR_DEVICE=os.environ.get("FASTER_WHISPER_TEST_DEVICE", "cpu"),
+            ASR_COMPUTE_TYPE=os.environ.get("FASTER_WHISPER_TEST_COMPUTE_TYPE", "int8"),
+        )
+
+        result = pipeline.process(media, source_language_hint="ja")
+
+        assert result["stage"] == "completed"
+        assert result["asr_backend"] == "faster-whisper"
+        assert result["asr_model"] == os.environ.get("FASTER_WHISPER_TEST_MODEL", "tiny")
+        assert result["source_language"] == "ja"
+        assert result["segment_count"] >= 1
+        assert result["usage"]["total_tokens"] > 0
+
+        original_srt = Path(result["original_srt"])
+        bilingual_srt = Path(result["bilingual_srt"])
+        bilingual_ass = Path(result["bilingual_ass"])
+        assert original_srt.exists()
+        assert bilingual_srt.exists()
+        assert bilingual_ass.exists()
+        assert original_srt.read_text(encoding="utf-8").strip()
+        bilingual_text = bilingual_srt.read_text(encoding="utf-8")
+        assert "こんにちは" in bilingual_text
+
+    def test_ci_ffmpeg_has_arib_caption_decoder(self, ollama_model):  # noqa: ARG002
+        """CI 必须使用能解 ARIB 字幕的 ffmpeg 构建。"""
+        assert SubtitlePipeline._ffmpeg_has_arib_caption_decoder()
+
+    def test_ollama_process_embedded_subtitles_writes_bilingual_ass(
+        self, tmp_path, ollama_model
+    ):
+        """真实内嵌字幕抽取 + 本地 LLM 翻译 + 双语 ASS 输出烟测。"""
+        sample = Path("app/static/samples/japanese-smoke-test.mp4")
+        source_srt = tmp_path / "embedded.ja.srt"
+        source_srt.write_text(
+            "1\n"
+            "00:00:00,000 --> 00:00:02,000\n"
+            "こんにちは\n"
+            "\n"
+            "2\n"
+            "00:00:02,000 --> 00:00:04,000\n"
+            "これは字幕テストです\n"
+            "\n",
+            encoding="utf-8",
+        )
+        media = tmp_path / "embedded-subtitles.mkv"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(sample),
+                "-i",
+                str(source_srt),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0",
+                "-map",
+                "1:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-c:s",
+                "srt",
+                "-metadata:s:s:0",
+                "language=ja",
+                str(media),
+            ],
+            check=True,
+        )
+
+        pipeline = _pipeline(
+            "ollama",
+            ollama_model,
+            TRANSLATION_CHUNK_SIZE=1,
+            TRANSLATION_TIMEOUT=300,
+            MEDIA_DIR=str(tmp_path),
+            ASR_BACKEND="faster-whisper",
+            ASR_MODEL="tiny",
+        )
+
+        result = pipeline.process(media, source_language_hint="ja")
+
+        assert result["stage"] == "completed"
+        assert result["source_language"] == "ja"
+        assert result["segment_count"] == 2
+
+        original_srt = Path(result["original_srt"]).read_text(encoding="utf-8")
+        assert "こんにちは" in original_srt
+        assert "これは字幕テストです" in original_srt
+
+        bilingual_srt = Path(result["bilingual_srt"]).read_text(encoding="utf-8")
+        assert "こんにちは" in bilingual_srt
+        assert "これは字幕テストです" in bilingual_srt
+
+        bilingual_ass = Path(result["bilingual_ass"]).read_text(encoding="utf-8-sig")
+        assert "PlayResX: 640" in bilingual_ass
+        assert "PlayResY: 360" in bilingual_ass
+        assert "Style: Source" in bilingual_ass
+        assert "Style: Translation" in bilingual_ass
+        assert bilingual_ass.count("Dialogue: 0,") == 2
+        assert r"{\rSource}こんにちは" in bilingual_ass
+        assert r"{\rSource}これは字幕テスト" in bilingual_ass
+        assert r"です\N{\rTranslation}" in bilingual_ass
+        assert r"{\rTranslation}" in bilingual_ass
 
 
 # ------------------------------------------------------------------ OpenRouter integration
