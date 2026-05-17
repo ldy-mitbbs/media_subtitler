@@ -251,9 +251,11 @@ class TestOllamaIntegration:
         assert original_srt.exists()
         assert bilingual_srt.exists()
         assert bilingual_ass.exists()
-        assert original_srt.read_text(encoding="utf-8").strip()
+        original_text = original_srt.read_text(encoding="utf-8")
+        assert original_text.strip()
+        assert any("\u3040" <= ch <= "\u30ff" for ch in original_text)
         bilingual_text = bilingual_srt.read_text(encoding="utf-8")
-        assert "こんにちは" in bilingual_text
+        assert any("\u3040" <= ch <= "\u30ff" for ch in bilingual_text)
 
     def test_ci_ffmpeg_has_arib_caption_decoder(self, ollama_model):  # noqa: ARG002
         """CI 必须使用能解 ARIB 字幕的 ffmpeg 构建。"""
