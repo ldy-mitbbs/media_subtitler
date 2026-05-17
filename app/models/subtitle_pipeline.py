@@ -2464,6 +2464,11 @@ class SubtitleJobManager:
         self.jobs = {}
         self.lock = threading.Lock()
 
+    def update_config(self, config):
+        with self.lock:
+            self.base_config = dict(config)
+            self.pipeline = SubtitlePipeline(config)
+
     def list_media_files(self):
         allowed_ext = {
             ".mp4",

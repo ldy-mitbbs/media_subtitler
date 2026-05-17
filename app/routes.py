@@ -593,6 +593,10 @@ def update_settings():
     if "ASR_MODEL" in updates:
         current_app.config["WHISPER_MODEL"] = updates["ASR_MODEL"]
 
+    manager = current_app.extensions.get("subtitle_job_manager")
+    if manager is not None:
+        manager.update_config(current_app.config)
+
     return jsonify({"success": True, "settings": updates})
 
 
