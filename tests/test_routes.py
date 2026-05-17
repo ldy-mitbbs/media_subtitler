@@ -67,10 +67,26 @@ class TestFileDialog:
         assert data["canceled"] is True
 
 
+class TestSampleMedia:
+    def test_sample_media_copies_builtin_video(self, client, tmp_path):
+        resp = client.post("/api/sample-media")
+        data = resp.get_json()
+
+        target = tmp_path / "media-subtitler-japanese-test.mp4"
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["path"] == str(target)
+        assert target.exists()
+        assert target.stat().st_size > 0
+
+
 class TestFinderShortcut:
     def test_finder_shortcut_status_on_macos(self, client, mocker):
         mocker.patch("app.routes.sys.platform", "darwin")
-        mocker.patch("app.routes._finder_shortcut_app_path", return_value=Path("/tmp/Finder.app"))
+        mocker.patch(
+            "app.routes._finder_shortcut_app_path",
+            return_value=Path("/tmp/Media Subtitler 网页版启动任务.app"),
+        )
 
         resp = client.get("/api/finder-shortcut")
         data = resp.get_json()
@@ -81,7 +97,7 @@ class TestFinderShortcut:
         assert data["installed"] is False
 
     def test_finder_shortcut_installs_on_macos(self, client, tmp_path, mocker):
-        app_path = tmp_path / "Media Subtitler Start Job.app"
+        app_path = tmp_path / "Media Subtitler 网页版启动任务.app"
         installer = tmp_path / "install.sh"
         installer.write_text("#!/bin/zsh\n", encoding="utf-8")
 
@@ -104,7 +120,34 @@ class TestFinderShortcut:
         assert resp.status_code == 200
         assert data["success"] is True
         assert data["installed"] is True
-        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0][-2:] == ["--target", "web"]
+
+    def test_finder_shortcut_installs_desktop_entry_in_desktop_mode(self, client, tmp_path, mocker, monkeypatch):
+        app_path = tmp_path / "Media Subtitler 桌面版启动任务.app"
+        installer = tmp_path / "install.sh"
+        installer.write_text("#!/bin/zsh\n", encoding="utf-8")
+
+        def fake_run(*args, **kwargs):
+            app_path.mkdir()
+            mock = mocker.Mock()
+            mock.returncode = 0
+            mock.stdout = "Installed"
+            mock.stderr = ""
+            return mock
+
+        monkeypatch.setenv("MEDIA_SUBTITLER_DESKTOP", "1")
+        mocker.patch("app.routes.sys.platform", "darwin")
+        mocker.patch("app.routes._finder_shortcut_app_path", return_value=app_path)
+        mocker.patch("app.routes._finder_shortcut_installer_path", return_value=installer)
+        mock_run = mocker.patch("app.routes.subprocess.run", side_effect=fake_run)
+
+        resp = client.post("/api/finder-shortcut")
+        data = resp.get_json()
+
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["installed"] is True
+        assert mock_run.call_args.args[0][-2:] == ["--target", "desktop"]
 
 
 class TestApiConfig:

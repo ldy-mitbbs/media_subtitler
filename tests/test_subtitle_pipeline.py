@@ -50,6 +50,16 @@ def test_load_json_with_fallback_handles_cp949_bytes(tmp_path):
     assert loaded == payload
 
 
+def test_load_json_with_fallback_handles_utf8_bom(tmp_path):
+    payload = {"result": {"language": "ja"}, "transcription": []}
+    json_path = tmp_path / "transcription_bom.json"
+    json_path.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+
+    loaded = SubtitlePipeline._load_json_with_fallback(json_path)
+
+    assert loaded == payload
+
+
 def test_count_cjk_chars_includes_hangul():
     assert SubtitlePipeline._count_cjk_chars("안녕하세요") == 5
     assert SubtitlePipeline._count_cjk_chars("こんにちは") == 5
@@ -65,6 +75,16 @@ def test_repair_mojibake_text_restores_utf8_interpreted_as_latin1():
     mojibake = original.encode("utf-8").decode("latin-1")
 
     assert SubtitlePipeline._repair_mojibake_text(mojibake) == original
+
+
+def test_repair_mojibake_segments_handles_single_short_clip_segment():
+    original = "こんにちは。これは字幕テスト用の短い動画です。"
+    mojibake = original.encode("utf-8").decode("latin-1")
+    segments = [{"start": 0.0, "end": 4.0, "text": mojibake}]
+
+    repaired = SubtitlePipeline._repair_mojibake_segments(segments)
+
+    assert repaired[0]["text"] == original
 
 
 def test_translate_with_recovery_splits_batch_on_timeout(mocker):
@@ -531,3 +551,21 @@ def test_start_translation_resumes_with_overrides(tmp_path, mocker):
     assert seen["model"] == "my/test-model"
     assert seen["target"] == "en"
     assert seen["skip"] is True
+
+
+def test_job_manager_update_config_refreshes_cached_pipeline(tmp_path):
+    from app.models.subtitle_pipeline import SubtitleJobManager
+
+    cfg = {
+        "MEDIA_DIR": str(tmp_path),
+        "TRANSLATION_BACKEND": "deepseek",
+        "TRANSLATION_MODEL": "deepseek-v4-flash",
+        "DEEPSEEK_API_KEY": "",
+    }
+    manager = SubtitleJobManager(cfg)
+
+    cfg["DEEPSEEK_API_KEY"] = "sk-test"
+    manager.update_config(cfg)
+
+    assert manager.pipeline.deepseek_api_key == "sk-test"
+    assert manager._build_pipeline({}).deepseek_api_key == "sk-test"

@@ -99,6 +99,12 @@
           </div>
           <div class="settings-row">
             <div class="settings-field">
+              <label for="setting-whisper-cpp-model-path">whisper.cpp 模型文件路径</label>
+              <input id="setting-whisper-cpp-model-path" type="text" placeholder="/Users/you/.cache/media_subtitler/models/ggml-large-v3.bin">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
               <label for="setting-translation-backend">默认翻译后端</label>
               <select id="setting-translation-backend">
                 <option value="">使用默认</option>
@@ -289,7 +295,9 @@
       <div class="row file-picker-row">
         <input id="local-path" type="text" placeholder="/Users/me/Media/sample.mkv">
         <button id="choose-local" type="button">选择文件</button>
+        <button id="use-sample" type="button">使用测试视频</button>
       </div>
+      <div class="hint" id="sample-status"></div>
       <div class="hint" id="estimate-hint"></div>
       <div class="run-actions">
         <button id="start-local" type="button" class="primary run-primary">直接运行</button>

@@ -1,4 +1,5 @@
 .venv/
+.venv-desktop/
 venv/
 __pycache__/
 *.pyc
@@ -13,3 +14,8 @@ media/
 settings.json
 media-subtitler-finder.log
 .vscode/
+
+# Desktop packaging outputs
+build/
+dist/
+*.spec

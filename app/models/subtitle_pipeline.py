@@ -141,7 +141,7 @@ def format_srt_timestamp(seconds):
 
 
 def _find_media_tool(name):
-    """Find ffmpeg/ffprobe even when launched from macOS GUI with a tiny PATH."""
+    """Find media CLIs even when launched from macOS GUI with a tiny PATH."""
     found = shutil.which(name)
     if found:
         return found
@@ -599,7 +599,7 @@ class SubtitlePipeline:
 
         self.ollama_base_url = config.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self.translation_backend = (
-            str(config.get("TRANSLATION_BACKEND", "ollama")).strip().lower() or "ollama"
+            str(config.get("TRANSLATION_BACKEND", "deepseek")).strip().lower() or "deepseek"
         )
         if self.translation_backend not in {"ollama", "openrouter", "deepseek"}:
             raise RuntimeError(
@@ -616,7 +616,7 @@ class SubtitlePipeline:
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         )
         self.deepseek_api_key = config.get("DEEPSEEK_API_KEY", "") or ""
-        self.translation_model = config.get("TRANSLATION_MODEL", "qwen2.5:14b")
+        self.translation_model = config.get("TRANSLATION_MODEL", "deepseek-v4-flash")
         self.translation_chunk_size = int(config.get("TRANSLATION_CHUNK_SIZE", 20))
         self.translation_timeout = int(config.get("TRANSLATION_TIMEOUT", 120))
 
@@ -832,7 +832,7 @@ class SubtitlePipeline:
         if backend == "openai":
             return "openai"
         if backend == "auto":
-            return "whispercpp" if shutil.which(self.whisper_cpp_command) else "faster-whisper"
+            return "whispercpp" if _find_media_tool(self.whisper_cpp_command) else "faster-whisper"
         raise RuntimeError(f"Unsupported ASR_BACKEND: {self.asr_backend}")
 
     def _transcribe(self, media_path, backend, progress_cb=None, language_hint=None):
@@ -1382,10 +1382,10 @@ class SubtitlePipeline:
         return segments, getattr(info, "language", language_hint or "unknown")
 
     def _transcribe_with_whispercpp(self, media_path, progress_cb=None, language_hint=None):
-        command_path = shutil.which(self.whisper_cpp_command)
+        command_path = _find_media_tool(self.whisper_cpp_command)
         if not command_path:
             raise RuntimeError(
-                f"whisper.cpp CLI not found: {self.whisper_cpp_command}. Install whisper.cpp and ensure '{self.whisper_cpp_command}' is on PATH."
+                f"whisper.cpp CLI not found: {self.whisper_cpp_command}. Install whisper.cpp or set WHISPER_CPP_COMMAND to the full whisper-cli path."
             )
 
         model_path = self._resolve_whispercpp_model_path(media_path)
@@ -1492,9 +1492,13 @@ class SubtitlePipeline:
             tried.add(encoding)
             try:
                 return json.loads(raw_bytes.decode(encoding))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (LookupError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
 
+        # Last resort: handle a UTF-8 BOM without relying on the optional
+        # encodings.utf_8_sig module, which can be missing in packaged builds.
+        if raw_bytes.startswith(b"\xef\xbb\xbf"):
+            raw_bytes = raw_bytes[3:]
         return json.loads(raw_bytes.decode("utf-8", errors="replace"))
 
     @staticmethod
@@ -1538,9 +1542,10 @@ class SubtitlePipeline:
             text = seg.get("text", "") or ""
             if any(c in text for c in suspicious_marker_chars):
                 affected += 1
-        # If at least 5% of segments (or 3 segments, whichever is larger)
-        # contain mojibake markers, treat the whole job as mojibake.
-        threshold = max(3, int(len(segments) * 0.05))
+        # If at least 5% of segments contain mojibake markers, treat the
+        # whole job as mojibake. Tiny diagnostic clips may only have one
+        # segment, so the minimum threshold must stay at one.
+        threshold = max(1, int(len(segments) * 0.05))
         if affected < threshold:
             return segments
 
@@ -1605,6 +1610,7 @@ class SubtitlePipeline:
                     Path("models") / f"ggml-{model_name}.bin",
                     Path(media_path).parent / f"ggml-{model_name}.bin",
                     self.media_dir / f"ggml-{model_name}.bin",
+                    Path.home() / ".cache" / "media_subtitler" / "models" / f"ggml-{model_name}.bin",
                 ]
             )
 
@@ -2458,6 +2464,11 @@ class SubtitleJobManager:
         self.jobs = {}
         self.lock = threading.Lock()
 
+    def update_config(self, config):
+        with self.lock:
+            self.base_config = dict(config)
+            self.pipeline = SubtitlePipeline(config)
+
     def list_media_files(self):
         allowed_ext = {
             ".mp4",
@@ -2572,7 +2583,7 @@ class SubtitleJobManager:
                     job_id,
                     status="awaiting_translation",
                     progress=55,
-                    message="Transcription complete; choose a translation model",
+                    message="语音识别完成；可继续翻译（不填模型则使用默认值）",
                     result=result,
                 )
             else:
@@ -2738,7 +2749,7 @@ class SubtitleJobManager:
                 job_id,
                 status="awaiting_translation",
                 progress=55,
-                message="Translation failed; pick a model and retry",
+                message="翻译失败；可调整模型后重试，或留空使用默认值",
                 error=str(exc),
             )
 
