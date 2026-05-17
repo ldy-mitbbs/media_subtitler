@@ -4,9 +4,49 @@ set -u
 ROOT="${MEDIA_SUBTITLER_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 HOST="${MEDIA_SUBTITLER_HOST:-127.0.0.1}"
 PORT="${MEDIA_SUBTITLER_PORT:-5050}"
-BASE_URL="${MEDIA_SUBTITLER_URL:-http://${HOST}:${PORT}}"
 MODE="${MEDIA_SUBTITLER_MODE:-full}"
-LOG_FILE="${MEDIA_SUBTITLER_FINDER_LOG:-${ROOT}/media-subtitler-finder.log}"
+TARGET="${MEDIA_SUBTITLER_FINDER_TARGET:-web}"
+APP_SUPPORT="${HOME}/Library/Application Support/Media Subtitler"
+SERVER_FILE="${APP_SUPPORT}/server.json"
+LOG_FILE="${MEDIA_SUBTITLER_FINDER_LOG:-${APP_SUPPORT}/media-subtitler-finder.log}"
+
+desktop_app_path() {
+  if [[ -n "${MEDIA_SUBTITLER_DESKTOP_APP_PATH:-}" ]]; then
+    print -r -- "$MEDIA_SUBTITLER_DESKTOP_APP_PATH"
+    return
+  fi
+  if [[ "$ROOT" == *".app/"* ]]; then
+    print -r -- "${ROOT%%.app/*}.app"
+    return
+  fi
+  for candidate in \
+    "/Applications/Media Subtitler.app" \
+    "${HOME}/Applications/Media Subtitler.app"; do
+    if [[ -d "$candidate" ]]; then
+      print -r -- "$candidate"
+      return
+    fi
+  done
+}
+
+current_base_url() {
+  if [[ -n "${MEDIA_SUBTITLER_URL:-}" ]]; then
+    print -r -- "$MEDIA_SUBTITLER_URL"
+    return
+  fi
+  if [[ "$TARGET" == "desktop" && -f "$SERVER_FILE" ]]; then
+    /usr/bin/python3 -c '
+import json
+import sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("url", ""))
+except Exception:
+    pass
+' "$SERVER_FILE" 2>/dev/null
+    return
+  fi
+  print -r -- "http://${HOST}:${PORT}"
+}
 
 notify() {
   local title="$1"
@@ -25,7 +65,9 @@ python_bin() {
 }
 
 server_ready() {
-  /usr/bin/curl -fsS "${BASE_URL}/api/config" >/dev/null 2>&1
+  local url
+  url="$(current_base_url)"
+  [[ -n "$url" ]] && /usr/bin/curl -fsS "${url}/api/config" >/dev/null 2>&1
 }
 
 start_server_if_needed() {
@@ -33,15 +75,25 @@ start_server_if_needed() {
     return 0
   fi
 
-  local py
-  py="$(python_bin)"
   mkdir -p "$(dirname "$LOG_FILE")"
-  (
-    cd "$ROOT" || exit 1
-    nohup "$py" "$ROOT/run.py" --host "$HOST" --port "$PORT" >> "$LOG_FILE" 2>&1 &
-  )
 
-  for _ in {1..40}; do
+  if [[ "$TARGET" == "desktop" ]]; then
+    local app_path
+    app_path="$(desktop_app_path)"
+    if [[ -z "$app_path" || ! -d "$app_path" ]]; then
+      return 1
+    fi
+    /usr/bin/open -a "$app_path" >> "$LOG_FILE" 2>&1 || true
+  else
+    local py
+    py="$(python_bin)"
+    (
+      cd "$ROOT" || exit 1
+      nohup "$py" "$ROOT/run.py" --host "$HOST" --port "$PORT" >> "$LOG_FILE" 2>&1 &
+    )
+  fi
+
+  for _ in {1..80}; do
     if server_ready; then
       return 0
     fi
@@ -74,12 +126,14 @@ print(value)
 submit_file() {
   local file="$1"
   local response
+  local url
+  url="$(current_base_url)"
 
   response="$(
     /usr/bin/curl -fsS \
       --form-string "local_path=${file}" \
       --form-string "mode=${MODE}" \
-      "${BASE_URL}/api/jobs"
+      "${url}/api/jobs"
   )" || return 1
 
   local success
@@ -99,7 +153,7 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 if ! start_server_if_needed; then
-  notify "Media Subtitler" "无法连接或启动本地服务：${BASE_URL}"
+  notify "Media Subtitler" "无法连接或启动本地服务：$(current_base_url)"
   exit 1
 fi
 

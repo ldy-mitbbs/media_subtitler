@@ -318,6 +318,22 @@ def test_find_media_tool_checks_common_gui_launch_paths(monkeypatch):
     assert _find_media_tool("ffprobe") == target
 
 
+def test_find_media_tool_finds_whisper_cli_in_homebrew_for_gui_launch(monkeypatch):
+    target = "/opt/homebrew/bin/whisper-cli"
+
+    monkeypatch.setattr("app.models.subtitle_pipeline.shutil.which", lambda _: None)
+    monkeypatch.setattr(
+        "app.models.subtitle_pipeline.Path.exists",
+        lambda self: str(self) == target,
+    )
+    monkeypatch.setattr(
+        "app.models.subtitle_pipeline.os.access",
+        lambda path, mode: str(path) == target,
+    )
+
+    assert _find_media_tool("whisper-cli") == target
+
+
 # ------------------------------------------------------------------ record usage
 
 class TestRecordUsage:
@@ -410,7 +426,10 @@ class TestSafeUnicodeFilename:
 
 class TestResolveBackend:
     def test_auto_prefers_whispercpp_when_available(self, mocker):
-        mocker.patch("shutil.which", return_value="/usr/bin/whisper-cli")
+        mocker.patch(
+            "app.models.subtitle_pipeline._find_media_tool",
+            return_value="/usr/bin/whisper-cli",
+        )
         cfg = {
             "WHISPER_BACKEND": "auto",
             "TRANSLATION_BACKEND": "ollama",
@@ -421,7 +440,7 @@ class TestResolveBackend:
         assert pipeline._resolve_backend() == "whispercpp"
 
     def test_auto_falls_back_to_faster_whisper(self, mocker):
-        mocker.patch("shutil.which", return_value=None)
+        mocker.patch("app.models.subtitle_pipeline._find_media_tool", return_value=None)
         cfg = {
             "WHISPER_BACKEND": "auto",
             "TRANSLATION_BACKEND": "ollama",
@@ -474,6 +493,28 @@ class TestResolveBackend:
         pipeline = SubtitlePipeline(cfg)
         with pytest.raises(RuntimeError, match="Unsupported ASR_BACKEND"):
             pipeline._resolve_backend()
+
+
+class TestWhisperCppModelPath:
+    def test_resolve_model_path_checks_user_cache(self, monkeypatch, tmp_path):
+        media_path = tmp_path / "input.mp4"
+        media_path.write_bytes(b"")
+        cached_model = Path.home() / ".cache" / "media_subtitler" / "models" / "ggml-large-v3.bin"
+
+        monkeypatch.setattr(
+            "app.models.subtitle_pipeline.Path.exists",
+            lambda self: str(self) == str(cached_model),
+        )
+        cfg = {
+            "WHISPER_BACKEND": "whispercpp",
+            "WHISPER_MODEL": "large-v3",
+            "TRANSLATION_BACKEND": "ollama",
+            "TRANSLATION_MODEL": "dummy",
+            "TARGET_LANGUAGE": "zh",
+        }
+        pipeline = SubtitlePipeline(cfg)
+
+        assert pipeline._resolve_whispercpp_model_path(media_path) == cached_model
 
 
 # ------------------------------------------------------------------ JSON mode support
