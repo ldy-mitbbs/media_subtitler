@@ -1,3 +1,4 @@
+import os
 import platform
 import re
 import shutil
@@ -340,7 +341,9 @@ def _open_media_with_player(media_path, subtitle_path=None):
 
 
 def _finder_shortcut_app_path():
-    return Path.home() / "Applications" / "Media Subtitler Start Job.app"
+    if os.environ.get("MEDIA_SUBTITLER_DESKTOP") == "1":
+        return Path.home() / "Applications" / "Media Subtitler 桌面版启动任务.app"
+    return Path.home() / "Applications" / "Media Subtitler 网页版启动任务.app"
 
 
 def _finder_shortcut_installer_path():
@@ -404,17 +407,22 @@ def finder_shortcut():
 
     installer = _finder_shortcut_installer_path()
     if not installer.exists():
-        return jsonify({"success": False, "message": "Installer script not found"}), 500
+        return jsonify({"success": False, "message": "找不到 Finder 入口安装脚本"}), 500
+    installer.chmod(installer.stat().st_mode | 0o111)
 
     result = subprocess.run(
-        [str(installer)],
+        [
+            str(installer),
+            "--target",
+            "desktop" if os.environ.get("MEDIA_SUBTITLER_DESKTOP") == "1" else "web",
+        ],
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
     )
     if result.returncode != 0:
-        message = (result.stderr or result.stdout or "Install failed").strip()
+        message = (result.stderr or result.stdout or "安装失败").strip()
         return jsonify({"success": False, "message": message}), 500
 
     return jsonify(
@@ -479,6 +487,7 @@ def get_settings():
             "qwen_asr_chunk_seconds": cfg.get("QWEN_ASR_CHUNK_SECONDS", 90),
             "whisper_backend": cfg.get("ASR_BACKEND", cfg.get("WHISPER_BACKEND", "")),
             "whisper_model": cfg.get("ASR_MODEL", cfg.get("WHISPER_MODEL", "")),
+            "whisper_cpp_model_path": cfg.get("WHISPER_CPP_MODEL_PATH", ""),
             "translation_backend": cfg.get("TRANSLATION_BACKEND", ""),
             "translation_model": cfg.get("TRANSLATION_MODEL", ""),
             "target_language": cfg.get("TARGET_LANGUAGE", ""),
@@ -507,6 +516,7 @@ def update_settings():
         "QWEN_ASR_CHUNK_SECONDS",
         "WHISPER_BACKEND",
         "WHISPER_MODEL",
+        "WHISPER_CPP_MODEL_PATH",
         "TRANSLATION_BACKEND",
         "TRANSLATION_MODEL",
         "TARGET_LANGUAGE",

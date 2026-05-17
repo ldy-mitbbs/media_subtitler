@@ -35,6 +35,7 @@
   const settingDeepseekApiKey = document.getElementById('setting-deepseek-api-key');
   const settingWhisperBackend = document.getElementById('setting-whisper-backend');
   const settingWhisperModel = document.getElementById('setting-whisper-model');
+  const settingWhisperCppModelPath = document.getElementById('setting-whisper-cpp-model-path');
   const settingTranslationBackend = document.getElementById('setting-translation-backend');
   const settingTranslationModel = document.getElementById('setting-translation-model');
   const settingTargetLanguage = document.getElementById('setting-target-language');
@@ -56,6 +57,55 @@
 
   const trackedJobs = new Map(); // job_id -> { el, polling }
 
+  function setLocalPathFromDrop(path) {
+    if (!path || !localPathInput) return;
+    localPathInput.value = path;
+    localPathInput.dispatchEvent(new Event('input', { bubbles: true }));
+    localPathInput.dispatchEvent(new Event('change', { bubbles: true }));
+    refreshEstimate();
+    localPathInput.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    localPathInput.focus();
+  }
+
+  window.mediaSubtitlerSetDroppedPath = setLocalPathFromDrop;
+
+  function bindFileDropUi() {
+    let dragDepth = 0;
+    const clearDrag = () => {
+      dragDepth = 0;
+      document.body.classList.remove('file-drag-over');
+    };
+    const hasFiles = event => {
+      const types = event.dataTransfer && Array.from(event.dataTransfer.types || []);
+      return types.includes('Files');
+    };
+
+    window.addEventListener('dragenter', event => {
+      if (!hasFiles(event)) return;
+      dragDepth += 1;
+      document.body.classList.add('file-drag-over');
+    });
+    window.addEventListener('dragover', event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    });
+    window.addEventListener('dragleave', event => {
+      if (!hasFiles(event)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) document.body.classList.remove('file-drag-over');
+    });
+    window.addEventListener('drop', event => {
+      clearDrag();
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      const path = file && (file.pywebviewFullPath || file.path);
+      if (path) setLocalPathFromDrop(path);
+    });
+    window.addEventListener('blur', clearDrag);
+  }
+
   function setFinderShortcutStatus(message, kind = '') {
     if (!finderShortcutStatusEl) return;
     finderShortcutStatusEl.textContent = message || '';
@@ -73,7 +123,10 @@
         return;
       }
       if (data.installed) {
-        setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Media Subtitler Start Job', 'success');
+        const name = data.app_path && data.app_path.includes('桌面版')
+          ? 'Media Subtitler 桌面版启动任务'
+          : 'Media Subtitler 网页版启动任务';
+        setFinderShortcutStatus(`已安装：Finder 右键 -> 打开方式 -> ${name}`, 'success');
       } else {
         setFinderShortcutStatus('未安装');
       }
@@ -95,7 +148,10 @@
         setFinderShortcutStatus(data.message || '安装失败', 'error');
         return;
       }
-      setFinderShortcutStatus('已安装：Finder 右键 -> 打开方式 -> Media Subtitler Start Job', 'success');
+      const name = data.app_path && data.app_path.includes('桌面版')
+        ? 'Media Subtitler 桌面版启动任务'
+        : 'Media Subtitler 网页版启动任务';
+      setFinderShortcutStatus(`已安装：Finder 右键 -> 打开方式 -> ${name}`, 'success');
     } catch (err) {
       setFinderShortcutStatus(`安装失败：${err}`, 'error');
     } finally {
@@ -149,6 +205,7 @@
       const savedAsrModel = s.asr_model || s.whisper_model || '';
       if (settingWhisperBackend) settingWhisperBackend.value = savedAsrBackend;
       if (settingWhisperModel) settingWhisperModel.value = savedAsrModel;
+      if (settingWhisperCppModelPath) settingWhisperCppModelPath.value = s.whisper_cpp_model_path || '';
       if (settingTranslationBackend) settingTranslationBackend.value = s.translation_backend || '';
       if (settingTranslationModel) settingTranslationModel.value = s.translation_model || '';
       if (settingTargetLanguage) settingTargetLanguage.value = s.target_language || '';
@@ -197,6 +254,7 @@
         DEEPSEEK_API_KEY: settingDeepseekApiKey ? settingDeepseekApiKey.value.trim() : '',
         ASR_BACKEND: settingWhisperBackend ? settingWhisperBackend.value.trim() : '',
         ASR_MODEL: settingWhisperModel ? settingWhisperModel.value.trim() : '',
+        WHISPER_CPP_MODEL_PATH: settingWhisperCppModelPath ? settingWhisperCppModelPath.value.trim() : '',
         TRANSLATION_BACKEND: settingTranslationBackend ? settingTranslationBackend.value.trim() : '',
         TRANSLATION_MODEL: settingTranslationModel ? settingTranslationModel.value.trim() : '',
         TARGET_LANGUAGE: settingTargetLanguage ? settingTargetLanguage.value.trim() : '',
@@ -1132,6 +1190,7 @@
   window.setInterval(refreshJobs, 5000);
   loadPricing();
   loadModels();
+  bindFileDropUi();
   bindModelPicker();
   refreshEstimate();
 })();

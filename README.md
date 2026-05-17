@@ -25,7 +25,7 @@
   - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色，并按视频画面比例设置布局）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
-- **Web UI**：小型 Flask 界面，支持本地文件选择、进度跟踪、下载、播放视频和 macOS Finder 右键启动任务。
+- **网页界面与 macOS 桌面应用**：可在浏览器中运行，也可打包成 macOS `.app`。桌面版支持拖放文件、原生窗口、设置持久化和独立 Finder 右键入口。
 
 ## 安装
 
@@ -92,7 +92,7 @@ Windows 自检：
   `arib_caption` 解码。普通 Homebrew `ffmpeg` 可能没有这个解码器；macOS
   可使用支持 `--with-libaribcaption` 的 ffmpeg 构建，或自行编译带
   `libaribcaption` 的 ffmpeg。
-- 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`（或设置 `WHISPER_CPP_MODEL_PATH`）。
+- 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`、`~/.cache/media_subtitler/models/ggml-<MODEL>.bin`，或在设置里填写 `WHISPER_CPP_MODEL_PATH`。
 - 使用 `ollama` 时：需要运行中的 Ollama 守护进程（默认 `http://127.0.0.1:11434`，或由 `GPU_BASE_URL` 派生为 `<GPU_BASE_URL>:11434`）。
 - 使用 `openrouter` 或 `deepseek` 时：在 `.env` 中填入对应的 API Key。
 
@@ -171,9 +171,9 @@ TRANSLATION_BACKEND=ollama
 TRANSLATION_MODEL=qwen2.5:14b
 ```
 
-也可以在 Web UI 里为单个任务选择 "Remote GPU faster-whisper"、填写 `GPU_BASE_URL`，并把翻译后端切到 Ollama。
+也可以在网页界面里为单个任务选择「远程 GPU faster-whisper」、填写 `GPU_BASE_URL`，并把翻译后端切到 Ollama。
 
-## Web UI
+## 网页界面
 
 ```bash
 python run.py --port 5050
@@ -181,7 +181,7 @@ python run.py --port 5050
 
 打开 http://localhost:5050。在「本地文件路径」输入视频的绝对路径，程序会直接处理源文件，并把 `.orig.srt`、`.bilingual.srt`、`.bilingual.ass` 写在视频旁边。
 
-也可以点击「选择文件」使用系统文件选择器；任务完成后，Web UI 会提供原始字幕、双语 SRT、双语 ASS 的下载入口，并可尝试用系统默认播放器直接打开视频和字幕。
+也可以点击「选择文件」使用系统文件选择器；任务完成后，网页界面会提供原始字幕、双语 SRT、双语 ASS 的下载入口，并可尝试用系统默认播放器直接打开视频和字幕。
 
 macOS Finder 右键启动任务：
 
@@ -189,13 +189,57 @@ macOS Finder 右键启动任务：
 ./scripts/install-macos-finder-shortcut.sh
 ```
 
-安装后，在 Finder 里选中媒体文件，右键选择 `Open With` / `打开方式` -> `Media Subtitler Start Job`。这个入口会把文件路径提交到本地 Web 服务；如果 `http://127.0.0.1:5050` 没有运行，会尝试自动启动 `run.py`。
+安装后，在 Finder 里选中媒体文件，右键选择「打开方式」-> `Media Subtitler 网页版启动任务`。这个入口会把文件路径提交到本地网页服务；如果 `http://127.0.0.1:5050` 没有运行，会尝试自动启动 `run.py`。
+
+桌面应用版本会安装独立的 `Media Subtitler 桌面版启动任务`，它会把文件提交给正在运行的桌面应用；如果桌面应用未运行，会先尝试打开桌面应用。
 
 Windows:
 
 ```powershell
 .\scripts\run-web-windows.ps1 -Browser -MediaDir "D:\Videos"
 ```
+
+## macOS 桌面应用
+
+如果你希望用普通桌面应用的方式运行，可以构建 macOS `.app`：
+
+```bash
+./scripts/build-macos-app.sh
+```
+
+构建结果位于：
+
+```text
+dist/Media Subtitler.app
+```
+
+桌面版仍然复用同一套 Flask 界面和字幕处理管道，但会在原生窗口中打开，并使用随机本地端口，不占用固定的 `5050`。桌面设置会保存到：
+
+```text
+~/Library/Application Support/Media Subtitler/settings.json
+```
+
+桌面版支持把媒体文件直接拖进窗口：拖放后会自动填入「本地文件路径」并刷新费用估算，但不会自动开始任务，需要你再点击「直接运行」。
+
+### 桌面版 Finder 入口
+
+在桌面应用里点击「安装 / 更新 Finder 入口」会安装：
+
+```text
+~/Applications/Media Subtitler 桌面版启动任务.app
+```
+
+之后可以在 Finder 里选中媒体文件，右键选择「打开方式」-> `Media Subtitler 桌面版启动任务`。这个入口会把文件提交给正在运行的桌面应用；如果桌面应用未运行，会先尝试打开 `Media Subtitler.app`。
+
+网页界面的 Finder 入口是另一个独立应用：
+
+```text
+~/Applications/Media Subtitler 网页版启动任务.app
+```
+
+两者可以并存：网页入口面向固定的 `http://127.0.0.1:5050` 服务，桌面入口面向当前运行的桌面应用。
+
+发布给其他机器前，需要对 `.app` 做代码签名和公证；当前构建脚本生成的是本机可试用的开发包。
 
 ## 项目结构
 
