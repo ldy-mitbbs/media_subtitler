@@ -141,7 +141,7 @@ def format_srt_timestamp(seconds):
 
 
 def _find_media_tool(name):
-    """Find ffmpeg/ffprobe even when launched from macOS GUI with a tiny PATH."""
+    """Find media CLIs even when launched from macOS GUI with a tiny PATH."""
     found = shutil.which(name)
     if found:
         return found
@@ -832,7 +832,7 @@ class SubtitlePipeline:
         if backend == "openai":
             return "openai"
         if backend == "auto":
-            return "whispercpp" if shutil.which(self.whisper_cpp_command) else "faster-whisper"
+            return "whispercpp" if _find_media_tool(self.whisper_cpp_command) else "faster-whisper"
         raise RuntimeError(f"Unsupported ASR_BACKEND: {self.asr_backend}")
 
     def _transcribe(self, media_path, backend, progress_cb=None, language_hint=None):
@@ -1382,10 +1382,10 @@ class SubtitlePipeline:
         return segments, getattr(info, "language", language_hint or "unknown")
 
     def _transcribe_with_whispercpp(self, media_path, progress_cb=None, language_hint=None):
-        command_path = shutil.which(self.whisper_cpp_command)
+        command_path = _find_media_tool(self.whisper_cpp_command)
         if not command_path:
             raise RuntimeError(
-                f"whisper.cpp CLI not found: {self.whisper_cpp_command}. Install whisper.cpp and ensure '{self.whisper_cpp_command}' is on PATH."
+                f"whisper.cpp CLI not found: {self.whisper_cpp_command}. Install whisper.cpp or set WHISPER_CPP_COMMAND to the full whisper-cli path."
             )
 
         model_path = self._resolve_whispercpp_model_path(media_path)
@@ -1605,6 +1605,7 @@ class SubtitlePipeline:
                     Path("models") / f"ggml-{model_name}.bin",
                     Path(media_path).parent / f"ggml-{model_name}.bin",
                     self.media_dir / f"ggml-{model_name}.bin",
+                    Path.home() / ".cache" / "media_subtitler" / "models" / f"ggml-{model_name}.bin",
                 ]
             )
 

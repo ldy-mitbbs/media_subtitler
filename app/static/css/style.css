@@ -19,6 +19,25 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+body::after {
+  content: "拖放媒体文件以填入本地路径";
+  position: fixed;
+  inset: 18px;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #7ea2ff;
+  border-radius: 10px;
+  background: rgba(15, 17, 21, 0.78);
+  color: #e8edf8;
+  font-size: 1.1rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+body.file-drag-over::after {
+  display: flex;
+}
 
 header {
   padding: 24px 32px;

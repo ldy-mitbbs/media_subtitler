@@ -27,6 +27,10 @@ dev = [
   "pytest>=7",
   "pytest-mock>=3",
 ]
+desktop = [
+  "pywebview>=5.4",
+  "pyinstaller>=6.6",
+]
 qwen-asr = [
   "qwen-asr>=0.0.6",
 ]
