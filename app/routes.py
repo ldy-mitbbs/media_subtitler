@@ -291,6 +291,29 @@ def _open_native_file_dialog():
         root.destroy()
 
 
+def _sample_media_source():
+    return Path(__file__).resolve().parent / "static" / "samples" / "japanese-smoke-test.mp4"
+
+
+@main_bp.route("/api/sample-media", methods=["POST"])
+def sample_media():
+    source = _sample_media_source()
+    if not source.exists():
+        return jsonify({"success": False, "message": "找不到内置测试视频"}), 500
+
+    media_dir = _media_dir()
+    media_dir.mkdir(parents=True, exist_ok=True)
+    target = media_dir / "media-subtitler-japanese-test.mp4"
+    shutil.copy2(source, target)
+    return jsonify(
+        {
+            "success": True,
+            "path": str(target),
+            "message": "已准备内置日语测试视频",
+        }
+    )
+
+
 def _resolve_media_path(filename):
     media_dir = _media_dir()
     target = (media_dir / filename).resolve()

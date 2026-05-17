@@ -1,6 +1,8 @@
 (() => {
   const localPathInput = document.getElementById('local-path');
   const chooseLocalBtn = document.getElementById('choose-local');
+  const useSampleBtn = document.getElementById('use-sample');
+  const sampleStatusEl = document.getElementById('sample-status');
   const startLocalBtn = document.getElementById('start-local');
   const sourceLangSelect = document.getElementById('source-language');
   const targetLangSelect = document.getElementById('target-language');
@@ -110,6 +112,12 @@
     if (!finderShortcutStatusEl) return;
     finderShortcutStatusEl.textContent = message || '';
     finderShortcutStatusEl.className = `status-text${kind ? ` ${kind}` : ''}`;
+  }
+
+  function setSampleStatus(message, kind = '') {
+    if (!sampleStatusEl) return;
+    sampleStatusEl.textContent = message || '';
+    sampleStatusEl.className = `hint status-text${kind ? ` ${kind}` : ''}`;
   }
 
   async function refreshFinderShortcutStatus() {
@@ -1109,6 +1117,35 @@
     }
   }
 
+  async function useSampleMedia() {
+    if (!useSampleBtn || useSampleBtn.disabled) return;
+    const prevText = useSampleBtn.textContent;
+    useSampleBtn.disabled = true;
+    useSampleBtn.textContent = '准备中...';
+    setSampleStatus('正在准备内置日语测试视频...');
+    try {
+      const res = await fetch('/api/sample-media', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        setSampleStatus(data.message || '测试视频准备失败', 'error');
+        return;
+      }
+      if (localPathInput) {
+        localPathInput.value = data.path || '';
+        localPathInput.dispatchEvent(new Event('input', { bubbles: true }));
+        localPathInput.dispatchEvent(new Event('change', { bubbles: true }));
+        refreshEstimate();
+        localPathInput.focus();
+      }
+      setSampleStatus('已填入内置日语测试视频，可直接运行。', 'success');
+    } catch (err) {
+      setSampleStatus(`测试视频准备失败：${err}`, 'error');
+    } finally {
+      useSampleBtn.disabled = false;
+      useSampleBtn.textContent = prevText;
+    }
+  }
+
   async function submitJob(formData, label) {
     let res, data;
     try {
@@ -1148,6 +1185,7 @@
   }
 
   if (chooseLocalBtn) chooseLocalBtn.addEventListener('click', chooseLocalFile);
+  if (useSampleBtn) useSampleBtn.addEventListener('click', useSampleMedia);
   if (startLocalBtn) startLocalBtn.addEventListener('click', withSubmitGuard(startLocalBtn, startLocalJob));
   if (localPathInput) {
     localPathInput.addEventListener('input', refreshEstimate);

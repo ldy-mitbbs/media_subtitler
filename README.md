@@ -26,6 +26,7 @@
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
 - **网页界面与 macOS 桌面应用**：可在浏览器中运行，也可打包成 macOS `.app`。桌面版支持拖放文件、原生窗口、设置持久化和独立 Finder 右键入口。
+- **内置排障样片**：桌面版提供机器生成的日语测试视频，可一键填入路径，用来确认本机语音识别链路是否跑通。
 
 ## 安装
 
@@ -220,6 +221,20 @@ dist/Media Subtitler.app
 ```
 
 桌面版支持把媒体文件直接拖进窗口：拖放后会自动填入「本地文件路径」并刷新费用估算，但不会自动开始任务，需要你再点击「直接运行」。
+
+### 桌面版排障测试
+
+如果不确定本机 `ffmpeg`、`whisper.cpp` 或模型路径是否配置正确，可以点击「本地文件路径」旁边的「使用测试视频」。应用会把内置日语测试视频复制到：
+
+```text
+~/Library/Application Support/Media Subtitler/Media/media-subtitler-japanese-test.mp4
+```
+
+然后自动填入路径。点击「直接运行」后，正常结果会先停在「等待翻译」状态，并生成：
+
+```text
+~/Library/Application Support/Media Subtitler/Media/media-subtitler-japanese-test.orig.srt
+```
 
 ### 桌面版 Finder 入口
 

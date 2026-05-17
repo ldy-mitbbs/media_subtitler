@@ -77,6 +77,16 @@ def test_repair_mojibake_text_restores_utf8_interpreted_as_latin1():
     assert SubtitlePipeline._repair_mojibake_text(mojibake) == original
 
 
+def test_repair_mojibake_segments_handles_single_short_clip_segment():
+    original = "こんにちは。これは字幕テスト用の短い動画です。"
+    mojibake = original.encode("utf-8").decode("latin-1")
+    segments = [{"start": 0.0, "end": 4.0, "text": mojibake}]
+
+    repaired = SubtitlePipeline._repair_mojibake_segments(segments)
+
+    assert repaired[0]["text"] == original
+
+
 def test_translate_with_recovery_splits_batch_on_timeout(mocker):
     pipeline = _pipeline()
 

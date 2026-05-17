@@ -1542,9 +1542,10 @@ class SubtitlePipeline:
             text = seg.get("text", "") or ""
             if any(c in text for c in suspicious_marker_chars):
                 affected += 1
-        # If at least 5% of segments (or 3 segments, whichever is larger)
-        # contain mojibake markers, treat the whole job as mojibake.
-        threshold = max(3, int(len(segments) * 0.05))
+        # If at least 5% of segments contain mojibake markers, treat the
+        # whole job as mojibake. Tiny diagnostic clips may only have one
+        # segment, so the minimum threshold must stay at one.
+        threshold = max(1, int(len(segments) * 0.05))
         if affected < threshold:
             return segments
 
