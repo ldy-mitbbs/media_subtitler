@@ -1,4 +1,5 @@
 import os
+import shutil
 import threading
 from pathlib import Path
 
@@ -211,6 +212,47 @@ class TestOllamaIntegration:
         result = job["result"]
         assert Path(result["bilingual_srt"]).exists()
         assert result["usage"]["total_tokens"] > 0
+
+    def test_ollama_full_process_real_faster_whisper_smoke(self, tmp_path, ollama_model):
+        """真实端到端烟测：本地 faster-whisper ASR + 本地 Ollama 翻译。
+
+        这个测试覆盖最重要的免费本地模型链路，CI 会用 tiny Whisper 模型和
+        qwen2.5:0.5b，避免依赖付费 API 或大模型下载。
+        """
+        sample = Path("app/static/samples/japanese-smoke-test.mp4")
+        media = tmp_path / sample.name
+        shutil.copyfile(sample, media)
+
+        pipeline = _pipeline(
+            "ollama",
+            ollama_model,
+            TRANSLATION_CHUNK_SIZE=1,
+            TRANSLATION_TIMEOUT=300,
+            MEDIA_DIR=str(tmp_path),
+            ASR_BACKEND="faster-whisper",
+            ASR_MODEL=os.environ.get("FASTER_WHISPER_TEST_MODEL", "tiny"),
+            ASR_DEVICE=os.environ.get("FASTER_WHISPER_TEST_DEVICE", "cpu"),
+            ASR_COMPUTE_TYPE=os.environ.get("FASTER_WHISPER_TEST_COMPUTE_TYPE", "int8"),
+        )
+
+        result = pipeline.process(media, source_language_hint="ja")
+
+        assert result["stage"] == "completed"
+        assert result["asr_backend"] == "faster-whisper"
+        assert result["asr_model"] == os.environ.get("FASTER_WHISPER_TEST_MODEL", "tiny")
+        assert result["source_language"] == "ja"
+        assert result["segment_count"] >= 1
+        assert result["usage"]["total_tokens"] > 0
+
+        original_srt = Path(result["original_srt"])
+        bilingual_srt = Path(result["bilingual_srt"])
+        bilingual_ass = Path(result["bilingual_ass"])
+        assert original_srt.exists()
+        assert bilingual_srt.exists()
+        assert bilingual_ass.exists()
+        assert original_srt.read_text(encoding="utf-8").strip()
+        bilingual_text = bilingual_srt.read_text(encoding="utf-8")
+        assert "こんにちは" in bilingual_text
 
 
 # ------------------------------------------------------------------ OpenRouter integration
