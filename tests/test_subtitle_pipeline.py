@@ -225,15 +225,20 @@ def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
                 ),
                 stderr="",
             )
+        raise AssertionError(f"unexpected subprocess.run call: {cmd}")
 
+    seen = {}
+    def fake_ffmpeg(cmd, **kwargs):  # noqa: ARG001
+        seen["cmd"] = cmd
         Path(cmd[-1]).write_text(
             "1\n00:00:00,000 --> 00:00:01,000\n안녕\n\n",
             encoding="utf-8",
         )
-        return mocker.Mock(returncode=0, stdout="", stderr="")
+        return 0, ""
 
     mocker.patch("shutil.which", side_effect=fake_which)
-    run_mock = mocker.patch("subprocess.run", side_effect=fake_run)
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=fake_ffmpeg)
     transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
     mocker.patch.object(
         pipeline,
@@ -247,7 +252,7 @@ def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
     assert result["source_language"] == "ko"
     assert result["segment_count"] == 1
     assert Path(result["original_srt"]).read_text(encoding="utf-8").count("안녕") == 1
-    ffmpeg_cmd = run_mock.call_args_list[1].args[0]
+    ffmpeg_cmd = seen["cmd"]
     map_arg = ffmpeg_cmd.index("-map")
     assert ffmpeg_cmd[map_arg:map_arg + 2] == ["-map", "0:2"]
 
@@ -270,10 +275,11 @@ def test_process_stops_when_embedded_subtitle_extract_fails(tmp_path, mocker):
                 ),
                 stderr="",
             )
-        return mocker.Mock(returncode=1, stdout="", stderr="cannot convert")
+        raise AssertionError(f"unexpected subprocess.run call: {cmd}")
 
     mocker.patch("shutil.which", side_effect=fake_which)
     mocker.patch("subprocess.run", side_effect=fake_run)
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", return_value=(1, "cannot convert"))
     transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
     mocker.patch.object(
         pipeline,
@@ -340,13 +346,17 @@ def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
                 stdout=json.dumps({"streams": [{"index": 3, "codec_name": "arib_caption"}]}),
                 stderr="",
             )
+        raise AssertionError(f"unexpected subprocess.run call: {cmd}")
+
+    mocker.patch("subprocess.run", side_effect=fake_run)
+    def fake_ffmpeg(cmd, **kwargs):  # noqa: ARG001
         Path(cmd[-1]).write_text(
             "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n\n",
             encoding="utf-8",
         )
-        return mocker.Mock(returncode=0, stdout="", stderr="")
+        return 0, ""
 
-    mocker.patch("subprocess.run", side_effect=fake_run)
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=fake_ffmpeg)
     transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
     mocker.patch.object(
         pipeline,
