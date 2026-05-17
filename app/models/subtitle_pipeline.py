@@ -1492,9 +1492,13 @@ class SubtitlePipeline:
             tried.add(encoding)
             try:
                 return json.loads(raw_bytes.decode(encoding))
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (LookupError, UnicodeDecodeError, json.JSONDecodeError):
                 continue
 
+        # Last resort: handle a UTF-8 BOM without relying on the optional
+        # encodings.utf_8_sig module, which can be missing in packaged builds.
+        if raw_bytes.startswith(b"\xef\xbb\xbf"):
+            raw_bytes = raw_bytes[3:]
         return json.loads(raw_bytes.decode("utf-8", errors="replace"))
 
     @staticmethod

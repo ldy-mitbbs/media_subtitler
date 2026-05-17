@@ -50,6 +50,16 @@ def test_load_json_with_fallback_handles_cp949_bytes(tmp_path):
     assert loaded == payload
 
 
+def test_load_json_with_fallback_handles_utf8_bom(tmp_path):
+    payload = {"result": {"language": "ja"}, "transcription": []}
+    json_path = tmp_path / "transcription_bom.json"
+    json_path.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+
+    loaded = SubtitlePipeline._load_json_with_fallback(json_path)
+
+    assert loaded == payload
+
+
 def test_count_cjk_chars_includes_hangul():
     assert SubtitlePipeline._count_cjk_chars("안녕하세요") == 5
     assert SubtitlePipeline._count_cjk_chars("こんにちは") == 5

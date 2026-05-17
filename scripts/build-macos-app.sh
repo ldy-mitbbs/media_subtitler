@@ -22,6 +22,7 @@ pyinstaller \
   --add-data "app/templates:app/templates" \
   --add-data "app/static:app/static" \
   --add-data "scripts:scripts" \
+  --hidden-import "encodings.utf_8_sig" \
   --hidden-import "app.routes" \
   --hidden-import "app.models.subtitle_pipeline" \
   --hidden-import "app.models.cost_estimator" \
