@@ -198,7 +198,7 @@ class Config:
     OPENAI_API_KEY = _get_setting(SETTINGS, "OPENAI_API_KEY", "")
 
     # --- Translation ---
-    TRANSLATION_BACKEND = _get_setting(SETTINGS, "TRANSLATION_BACKEND", "openrouter").strip().lower()
+    TRANSLATION_BACKEND = _get_setting(SETTINGS, "TRANSLATION_BACKEND", "deepseek").strip().lower()
     OLLAMA_BASE_URL = _derive_ollama_url(GPU_BASE_URL, SETTINGS)
     OPENROUTER_BASE_URL = _get_setting(SETTINGS, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENROUTER_API_KEY = _get_setting(SETTINGS, "OPENROUTER_API_KEY", "")

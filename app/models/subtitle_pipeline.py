@@ -599,7 +599,7 @@ class SubtitlePipeline:
 
         self.ollama_base_url = config.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
         self.translation_backend = (
-            str(config.get("TRANSLATION_BACKEND", "ollama")).strip().lower() or "ollama"
+            str(config.get("TRANSLATION_BACKEND", "deepseek")).strip().lower() or "deepseek"
         )
         if self.translation_backend not in {"ollama", "openrouter", "deepseek"}:
             raise RuntimeError(
@@ -616,7 +616,7 @@ class SubtitlePipeline:
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         )
         self.deepseek_api_key = config.get("DEEPSEEK_API_KEY", "") or ""
-        self.translation_model = config.get("TRANSLATION_MODEL", "qwen2.5:14b")
+        self.translation_model = config.get("TRANSLATION_MODEL", "deepseek-v4-flash")
         self.translation_chunk_size = int(config.get("TRANSLATION_CHUNK_SIZE", 20))
         self.translation_timeout = int(config.get("TRANSLATION_TIMEOUT", 120))
 
