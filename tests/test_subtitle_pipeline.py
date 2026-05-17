@@ -551,3 +551,21 @@ def test_start_translation_resumes_with_overrides(tmp_path, mocker):
     assert seen["model"] == "my/test-model"
     assert seen["target"] == "en"
     assert seen["skip"] is True
+
+
+def test_job_manager_update_config_refreshes_cached_pipeline(tmp_path):
+    from app.models.subtitle_pipeline import SubtitleJobManager
+
+    cfg = {
+        "MEDIA_DIR": str(tmp_path),
+        "TRANSLATION_BACKEND": "deepseek",
+        "TRANSLATION_MODEL": "deepseek-v4-flash",
+        "DEEPSEEK_API_KEY": "",
+    }
+    manager = SubtitleJobManager(cfg)
+
+    cfg["DEEPSEEK_API_KEY"] = "sk-test"
+    manager.update_config(cfg)
+
+    assert manager.pipeline.deepseek_api_key == "sk-test"
+    assert manager._build_pipeline({}).deepseek_api_key == "sk-test"
