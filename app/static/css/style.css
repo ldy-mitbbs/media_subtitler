@@ -156,6 +156,9 @@ button.primary:hover { background: var(--accent); border-color: var(--accent); }
   flex: 1 1 520px;
   min-width: 260px;
 }
+.file-picker-row button {
+  white-space: nowrap;
+}
 .run-actions {
   display: grid;
   margin-top: 8px;

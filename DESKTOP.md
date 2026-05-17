@@ -31,8 +31,25 @@ dist/Media Subtitler.app
 
 - 使用原生 macOS 窗口承载现有界面。
 - 支持把媒体文件拖进窗口，自动填入本地路径并刷新费用估算。
+- 内置一段机器生成的日语测试视频，可一键填入路径，用来排查本机 `ffmpeg`、`whisper.cpp` 和模型配置。
 - 设置保存在 Application Support，不写入应用包内部。
 - 与 Web 版使用不同的 Finder 入口，互不干扰。
+
+## 排障测试
+
+桌面版界面的「本地文件路径」旁边有「使用测试视频」按钮。点击后，应用会把内置日语测试视频复制到：
+
+```text
+~/Library/Application Support/Media Subtitler/Media/media-subtitler-japanese-test.mp4
+```
+
+然后自动填入路径。点击「直接运行」即可验证本地语音识别链路是否可用。正常情况下，任务会先停在「等待翻译」状态，并生成：
+
+```text
+~/Library/Application Support/Media Subtitler/Media/media-subtitler-japanese-test.orig.srt
+```
+
+如果这个测试视频能成功转写，但你自己的媒体文件失败，问题通常在媒体文件本身、内嵌字幕、文件路径或对应输出目录权限上。
 
 ## Finder 入口
 

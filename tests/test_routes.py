@@ -67,6 +67,19 @@ class TestFileDialog:
         assert data["canceled"] is True
 
 
+class TestSampleMedia:
+    def test_sample_media_copies_builtin_video(self, client, tmp_path):
+        resp = client.post("/api/sample-media")
+        data = resp.get_json()
+
+        target = tmp_path / "media-subtitler-japanese-test.mp4"
+        assert resp.status_code == 200
+        assert data["success"] is True
+        assert data["path"] == str(target)
+        assert target.exists()
+        assert target.stat().st_size > 0
+
+
 class TestFinderShortcut:
     def test_finder_shortcut_status_on_macos(self, client, mocker):
         mocker.patch("app.routes.sys.platform", "darwin")
