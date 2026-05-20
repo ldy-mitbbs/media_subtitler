@@ -106,7 +106,7 @@ def main():
         "--source-language",
         help="Force source language (e.g. ja, ko). Default: auto-detect.",
     )
-    parser.add_argument("--asr-backend", help="ASR backend (auto/faster-whisper/remote-faster-whisper/whispercpp/openai/qwen3-asr)")
+    parser.add_argument("--asr-backend", help="ASR backend (auto/faster-whisper/remote-faster-whisper/whispercpp/openai/qwen3-asr/openrouter)")
     parser.add_argument("--asr-model", help="ASR model name")
     parser.add_argument("--asr-device", help="ASR device (auto/cpu/cuda)")
     parser.add_argument("--asr-compute-type", help="ASR compute type")
