@@ -579,3 +579,57 @@ def test_job_manager_update_config_refreshes_cached_pipeline(tmp_path):
 
     assert manager.pipeline.deepseek_api_key == "sk-test"
     assert manager._build_pipeline({}).deepseek_api_key == "sk-test"
+
+
+def test_openrouter_asr_backend_posts_audio_and_writes_srt(tmp_path, mocker):
+    media_path = tmp_path / "sample01.mp4"
+    media_path.write_bytes(b"fake")
+
+    pipeline = _pipeline(
+        ASR_BACKEND="openrouter",
+        ASR_MODEL="qwen/qwen3-asr-flash-2026-02-10",
+        OPENROUTER_API_KEY="sk-or-test-key",
+        QWEN_ASR_CHUNK_SECONDS=90,
+    )
+    mocker.patch.object(pipeline, "_find_embedded_subtitle_stream", return_value=None)
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_extract_audio_mono_16k")
+    mocker.patch.object(pipeline, "_probe_audio_duration", return_value=90.0)
+    wav_path = tmp_path / "chunk.wav"
+    wav_path.write_bytes(b"wav")
+    mocker.patch.object(pipeline, "_split_audio_chunks", return_value=[wav_path])
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "text": "こんにちは。ありがとう。",
+            }
+
+    post_mock = mocker.patch("requests.post", return_value=FakeResponse())
+    mocker.patch.object(
+        pipeline,
+        "_translate_segments",
+        return_value=[{"start": 0.0, "end": 90.0, "text": "こんにちは\n你好"}],
+    )
+
+    result = pipeline.process(media_path)
+
+    assert result["source_language"] == "unknown"
+    assert result["asr_backend"] == "openrouter"
+    assert Path(result["original_srt"]).read_text(encoding="utf-8").count("こんにちは") == 1
+    post_mock.assert_called_once()
+    url_called = post_mock.call_args.args[0]
+    assert url_called == "https://openrouter.ai/api/v1/audio/transcriptions"
+
+    # Verify base64 audio and JSON payload structure
+    kwargs = post_mock.call_args.kwargs
+    assert kwargs["headers"]["Authorization"] == "Bearer sk-or-test-key"
+    payload = kwargs["json"]
+    assert payload["model"] == "qwen/qwen3-asr-flash-2026-02-10"
+    assert "data" in payload["input_audio"]
+    assert payload["input_audio"]["format"] == "wav"
+

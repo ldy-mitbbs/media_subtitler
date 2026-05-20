@@ -855,6 +855,8 @@ class SubtitlePipeline:
             return "qwen3-asr"
         if backend == "openai":
             return "openai"
+        if backend == "openrouter":
+            return "openrouter"
         if backend == "auto":
             return "whispercpp" if _find_media_tool(self.whisper_cpp_command) else "faster-whisper"
         raise RuntimeError(f"Unsupported ASR_BACKEND: {self.asr_backend}")
@@ -870,7 +872,88 @@ class SubtitlePipeline:
             )
         if backend == "qwen3-asr":
             return self._transcribe_with_qwen3_asr(media_path, progress_cb, language_hint)
+        if backend == "openrouter":
+            return self._transcribe_with_openrouter(media_path, progress_cb, language_hint)
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
+
+    def _transcribe_with_openrouter(self, media_path, progress_cb=None, language_hint=None):
+        import base64
+
+        api_key = self.openrouter_api_key
+        if not api_key:
+            raise RuntimeError(
+                "OpenRouter API key is not set. Set OPENROUTER_API_KEY in config or environment."
+            )
+
+        ffmpeg_path = _find_media_tool("ffmpeg")
+        if not ffmpeg_path:
+            raise RuntimeError("ffmpeg is required to prepare audio for OpenRouter")
+
+        chunk_seconds = max(15, int(self.qwen_asr_chunk_seconds or 90))
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-openrouter-") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            audio_path = temp_dir_path / "audio.wav"
+            if progress_cb:
+                progress_cb(5, "Extracting audio for OpenRouter")
+            self._extract_audio_mono_16k(media_path, audio_path)
+            duration = self._probe_audio_duration(audio_path) or 0.0
+            chunk_paths = self._split_audio_chunks(audio_path, temp_dir_path, chunk_seconds)
+
+            url = f"{self.openrouter_base_url.rstrip('/')}/audio/transcriptions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            if self.openrouter_referer:
+                headers["HTTP-Referer"] = self.openrouter_referer
+            if self.openrouter_app_title:
+                headers["X-Title"] = self.openrouter_app_title
+
+            model_name = self.asr_model_name
+            # Default to qwen/qwen3-asr-flash-2026-02-10 if not overridden
+            if not model_name or model_name == "large-v3":
+                model_name = "qwen/qwen3-asr-flash-2026-02-10"
+
+            segments = []
+            source_language = language_hint or "unknown"
+            for index, chunk_path in enumerate(chunk_paths):
+                start = index * chunk_seconds
+                end = min(duration, start + chunk_seconds) if duration else start + chunk_seconds
+                if progress_cb:
+                    progress = min(55, 10 + int(index / max(1, len(chunk_paths)) * 45))
+                    progress_cb(progress, f"OpenRouter transcribing chunk {index + 1}/{len(chunk_paths)}")
+
+                with open(chunk_path, "rb") as f:
+                    base64_audio = base64.b64encode(f.read()).decode("utf-8")
+
+                payload = {
+                    "model": model_name,
+                    "input_audio": {
+                        "data": base64_audio,
+                        "format": "wav"
+                    }
+                }
+
+                resp = requests.post(url, headers=headers, json=payload, timeout=600)
+                if resp.status_code != 200:
+                    try:
+                        err = resp.json()
+                        msg = err.get("error", {}).get("message", resp.text)
+                    except Exception:
+                        msg = resp.text
+                    raise RuntimeError(
+                        f"OpenRouter audio transcription API error ({resp.status_code}): {msg}"
+                    )
+
+                resp_payload = resp.json()
+                text = str(resp_payload.get("text", "")).strip()
+                segments.extend(self._segments_from_qwen_text(text, start, end))
+
+        segments = self._repair_mojibake_segments(segments)
+        segments = _dedupe_repeated_segments(segments)
+        if progress_cb:
+            progress_cb(55, f"OpenRouter transcription complete ({len(segments)} segments)")
+        return segments, source_language
 
     def _transcribe_with_qwen3_asr(self, media_path, progress_cb=None, language_hint=None):
         if Qwen3ASRModel is None or torch is None:
