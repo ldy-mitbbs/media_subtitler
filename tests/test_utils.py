@@ -547,12 +547,26 @@ class TestSupportsJsonMode:
         pipeline = SubtitlePipeline(cfg)
         assert pipeline._supports_json_mode()
 
+    def test_lmstudio_disables_json_object_mode(self):
+        # LM Studio rejects response_format={"type": "json_object"}, so JSON
+        # mode is intentionally off and we rely on prompt + extraction.
+        cfg = {
+            "TRANSLATION_BACKEND": "lmstudio",
+            "TRANSLATION_MODEL": "qwen2.5-14b-instruct",
+            "TARGET_LANGUAGE": "zh",
+        }
+        pipeline = SubtitlePipeline(cfg)
+        assert not pipeline._supports_json_mode()
+
 
 # ------------------------------------------------------------------ adaptive chunk size
 
 class TestAdaptiveChunkSize:
     def test_ollama_small(self):
         assert _adaptive_chunk_size("ollama", "qwen2.5:14b") == 8
+
+    def test_lmstudio_small(self):
+        assert _adaptive_chunk_size("lmstudio", "qwen2.5-14b-instruct") == 8
 
     def test_deepseek_v4(self):
         assert _adaptive_chunk_size("deepseek", "deepseek-v4-flash") == 20

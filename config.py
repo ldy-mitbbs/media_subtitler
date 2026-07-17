@@ -79,6 +79,7 @@ def _seed_settings_from_env():
         "TRANSLATION_CHUNK_SIZE",
         "TRANSLATION_TIMEOUT",
         "OLLAMA_BASE_URL",
+        "LMSTUDIO_BASE_URL",
         "OPENROUTER_BASE_URL",
         "OPENROUTER_API_KEY",
         "OPENROUTER_REFERER",
@@ -123,6 +124,8 @@ def _default_translation_model(backend: str) -> str:
         return "deepseek/deepseek-v4-flash"
     if backend == "deepseek":
         return "deepseek-v4-flash"
+    if backend == "lmstudio":
+        return "qwen2.5-14b-instruct"
     return "qwen2.5:14b"
 
 
@@ -154,6 +157,14 @@ def _derive_ollama_url(gpu_base_url: str, settings: dict) -> str:
     if explicit is not None:
         return explicit
     return f"{gpu_base_url}:11434" if gpu_base_url else "http://127.0.0.1:11434"
+
+
+def _derive_lmstudio_url(gpu_base_url: str, settings: dict) -> str:
+    explicit = settings.get("LMSTUDIO_BASE_URL")
+    if explicit is not None:
+        return explicit
+    # LM Studio serves an OpenAI-compatible API at :1234/v1 by default.
+    return f"{gpu_base_url}:1234/v1" if gpu_base_url else "http://127.0.0.1:1234/v1"
 
 
 class Config:
@@ -200,6 +211,7 @@ class Config:
     # --- Translation ---
     TRANSLATION_BACKEND = _get_setting(SETTINGS, "TRANSLATION_BACKEND", "deepseek").strip().lower()
     OLLAMA_BASE_URL = _derive_ollama_url(GPU_BASE_URL, SETTINGS)
+    LMSTUDIO_BASE_URL = _derive_lmstudio_url(GPU_BASE_URL, SETTINGS)
     OPENROUTER_BASE_URL = _get_setting(SETTINGS, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENROUTER_API_KEY = _get_setting(SETTINGS, "OPENROUTER_API_KEY", "")
     OPENROUTER_REFERER = _get_setting(SETTINGS, "OPENROUTER_REFERER", "")

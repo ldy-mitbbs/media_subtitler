@@ -599,13 +599,16 @@ class SubtitlePipeline:
         self.openai_api_key = config.get("OPENAI_API_KEY", "") or ""
 
         self.ollama_base_url = config.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        self.lmstudio_base_url = config.get(
+            "LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1"
+        )
         self.translation_backend = (
             str(config.get("TRANSLATION_BACKEND", "deepseek")).strip().lower() or "deepseek"
         )
-        if self.translation_backend not in {"ollama", "openrouter", "deepseek"}:
+        if self.translation_backend not in {"ollama", "lmstudio", "openrouter", "deepseek"}:
             raise RuntimeError(
                 f"Unsupported TRANSLATION_BACKEND: {self.translation_backend!r} "
-                "(expected 'ollama', 'openrouter', or 'deepseek')"
+                "(expected 'ollama', 'lmstudio', 'openrouter', or 'deepseek')"
             )
         self.openrouter_base_url = config.get(
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
@@ -646,8 +649,9 @@ class SubtitlePipeline:
             config.get("TRANSLATION_ERROR_BUDGET", 10)
         )
         # Per-run JSON-mode flag; reset on each process() call. Auto-disables
-        # if the model rejects response_format mid-run.
-        self._json_mode_enabled = True
+        # if the model rejects response_format mid-run. Seeded from the backend
+        # so direct _translate_* calls (e.g. tests) also respect it.
+        self._json_mode_enabled = self._supports_json_mode()
 
     @staticmethod
     def _config_text(config, primary_key, legacy_key=None, default=""):
@@ -2408,6 +2412,8 @@ class SubtitlePipeline:
             return self._chat_completion_openrouter(messages, stream_cb=stream_cb, json_mode=json_mode)
         if self.translation_backend == "deepseek":
             return self._chat_completion_deepseek(messages, stream_cb=stream_cb, json_mode=json_mode)
+        if self.translation_backend == "lmstudio":
+            return self._chat_completion_lmstudio(messages, stream_cb=stream_cb, json_mode=json_mode)
         return self._chat_completion_ollama(messages, stream_cb=stream_cb, json_mode=json_mode)
 
     def _chat_completion_ollama(self, messages, stream_cb=None, json_mode=False):
@@ -2465,6 +2471,20 @@ class SubtitlePipeline:
             base_url=self.openrouter_base_url,
             api_key=self.openrouter_api_key,
             extra_headers=extra_headers,
+            messages=messages,
+            stream_cb=stream_cb,
+            json_mode=json_mode,
+        )
+
+    def _chat_completion_lmstudio(self, messages, stream_cb=None, json_mode=False):
+        # LM Studio exposes an OpenAI-compatible server (default :1234/v1) and
+        # ignores the bearer token unless the user enabled API tokens, so any
+        # non-empty placeholder works. Runs entirely on the local/LAN GPU box,
+        # so there is no usage cost to track.
+        return self._chat_completion_openai_compatible(
+            base_url=self.lmstudio_base_url,
+            api_key="lm-studio",
+            extra_headers=None,
             messages=messages,
             stream_cb=stream_cb,
             json_mode=json_mode,
@@ -2691,6 +2711,12 @@ class SubtitlePipeline:
     )
 
     def _supports_json_mode(self):
+        # LM Studio's OpenAI-compatible server rejects
+        # response_format={"type": "json_object"} (it only accepts "json_schema"
+        # or "text"), so we skip JSON mode and rely on the prompt + robust
+        # JSON extraction instead.
+        if self.translation_backend == "lmstudio":
+            return False
         if self.translation_backend != "openrouter":
             return True  # Ollama 'format: json' is widely supported
         model = (self.translation_model or "").lower()

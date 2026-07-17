@@ -41,6 +41,10 @@
               <input id="setting-ollama-url" type="text" placeholder="如空则自动从 GPU 地址推导 (:11434)">
             </div>
             <div class="settings-field">
+              <label for="setting-lmstudio-url">LM Studio 地址</label>
+              <input id="setting-lmstudio-url" type="text" placeholder="如空则自动从 GPU 地址推导 (:1234/v1)">
+            </div>
+            <div class="settings-field">
               <label for="setting-openrouter-url">OpenRouter API 地址</label>
               <input id="setting-openrouter-url" type="text" placeholder="https://openrouter.ai/api/v1">
             </div>
@@ -110,6 +114,7 @@
               <select id="setting-translation-backend">
                 <option value="">使用默认</option>
                 <option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="deepseek">DeepSeek</option>
               </select>
@@ -239,6 +244,7 @@
       <select id="translation-backend">
         <option value="">使用默认</option>
         <option value="ollama">Ollama（本地或远程 GPU）</option>
+        <option value="lmstudio">LM Studio（本地或远程 GPU）</option>
         <option value="openrouter">OpenRouter</option>
         <option value="deepseek">DeepSeek</option>
       </select>
@@ -281,6 +287,8 @@
         <option value="qwen2.5:14b">qwen2.5:14b (Ollama)
         <option value="qwen2.5:32b">qwen2.5:32b (Ollama)
         <option value="llama3.1:8b">llama3.1:8b (Ollama)
+        <option value="qwen2.5-14b-instruct">qwen2.5-14b-instruct (LM Studio)
+        <option value="qwen2.5-7b-instruct">qwen2.5-7b-instruct (LM Studio)
       </datalist>
     </div>
 

@@ -15,6 +15,7 @@
 - **自动语言识别**：支持 Whisper 能识别的任意源语言。
 - **多翻译后端**：
   - `ollama` — 本地 `/api/chat` 端点。
+  - `lmstudio` — 本地/局域网 LM Studio 的 OpenAI-compatible 端点（默认 `:1234/v1`），适合用一台带 GPU 的台式机跑 14B 级模型。
   - `openrouter` — 云端 OpenAI-compatible API，支持 SSE 流式输出。
   - `deepseek` — DeepSeek 官方 API。
 - **Qwen3-ASR 可选后端**：可安装额外依赖后使用本地 Qwen3-ASR 做语音识别。
@@ -95,6 +96,7 @@ Windows 自检：
   `libaribcaption` 的 ffmpeg。
 - 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`、`~/.cache/media_subtitler/models/ggml-<MODEL>.bin`，或在设置里填写 `WHISPER_CPP_MODEL_PATH`。
 - 使用 `ollama` 时：需要运行中的 Ollama 守护进程（默认 `http://127.0.0.1:11434`，或由 `GPU_BASE_URL` 派生为 `<GPU_BASE_URL>:11434`）。
+- 使用 `lmstudio` 时：需要在目标机器上运行 LM Studio 并开启本地服务器（默认 `http://127.0.0.1:1234/v1`，或由 `GPU_BASE_URL` 派生为 `<GPU_BASE_URL>:1234/v1`），并在 LM Studio 里加载好对应模型（如 `qwen2.5-14b-instruct`）。无需 API Key。
 - 使用 `openrouter` 或 `deepseek` 时：在 `.env` 中填入对应的 API Key。
 
 复制 `.env.example` 为 `.env` 并按需编辑。
@@ -125,6 +127,12 @@ python subtitle_pipeline.py sample.mkv \
   --asr-backend remote-faster-whisper \
   --translation-backend ollama \
   --gpu-base-url http://192.168.1.42
+
+# 用局域网带 GPU 的台式机上的 LM Studio 翻译（OpenAI-compatible :1234/v1）
+python subtitle_pipeline.py sample.mkv \
+  --translation-backend lmstudio \
+  --translation-model qwen2.5-14b-instruct \
+  --lmstudio-base-url http://192.168.0.209:1234/v1
 ```
 
 Windows PowerShell 示例：

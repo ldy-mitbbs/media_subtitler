@@ -52,6 +52,7 @@ def build_config(overrides):
         "REMOTE_WHISPER_BASE_URL": Config.REMOTE_WHISPER_BASE_URL,
         "TRANSLATION_BACKEND": Config.TRANSLATION_BACKEND,
         "OLLAMA_BASE_URL": Config.OLLAMA_BASE_URL,
+        "LMSTUDIO_BASE_URL": Config.LMSTUDIO_BASE_URL,
         "OPENROUTER_BASE_URL": Config.OPENROUTER_BASE_URL,
         "OPENROUTER_API_KEY": Config.OPENROUTER_API_KEY,
         "OPENROUTER_REFERER": Config.OPENROUTER_REFERER,
@@ -73,6 +74,8 @@ def build_config(overrides):
             cfg["REMOTE_WHISPER_BASE_URL"] = f"{gpu_base_url}:5051"
         if not overrides.get("OLLAMA_BASE_URL") and not os.environ.get("OLLAMA_BASE_URL"):
             cfg["OLLAMA_BASE_URL"] = f"{gpu_base_url}:11434"
+        if not overrides.get("LMSTUDIO_BASE_URL") and not os.environ.get("LMSTUDIO_BASE_URL"):
+            cfg["LMSTUDIO_BASE_URL"] = f"{gpu_base_url}:1234/v1"
     return cfg
 
 
@@ -118,13 +121,14 @@ def main():
     parser.add_argument("--whispercpp-command", help="whisper.cpp CLI command name/path")
     parser.add_argument("--whispercpp-model-path", help="Path to whisper.cpp ggml model file")
     parser.add_argument("--whispercpp-threads", type=int, help="whisper.cpp thread count")
-    parser.add_argument("--gpu-base-url", help="Remote GPU base URL; derives Ollama :11434 and Whisper :5051")
+    parser.add_argument("--gpu-base-url", help="Remote GPU base URL; derives Ollama :11434, LM Studio :1234 and Whisper :5051")
     parser.add_argument("--remote-whisper-base-url", help="Remote faster-whisper server URL")
-    parser.add_argument("--translation-backend", help="Translation backend ('ollama', 'openrouter', or 'deepseek')")
-    parser.add_argument("--translation-model", help="Translation model name (Ollama tag, OpenRouter slug, or DeepSeek model)")
+    parser.add_argument("--translation-backend", help="Translation backend ('ollama', 'lmstudio', 'openrouter', or 'deepseek')")
+    parser.add_argument("--translation-model", help="Translation model name (Ollama tag, LM Studio model key, OpenRouter slug, or DeepSeek model)")
     parser.add_argument("--translation-chunk-size", type=int, help="Subtitle lines per translation chunk")
     parser.add_argument("--translation-timeout", type=int, help="Translation request timeout seconds")
     parser.add_argument("--ollama-base-url", help="Ollama base URL")
+    parser.add_argument("--lmstudio-base-url", help="LM Studio OpenAI-compatible base URL (e.g. http://host:1234/v1)")
     parser.add_argument("--openrouter-base-url", help="OpenRouter base URL")
     parser.add_argument("--openrouter-api-key", help="OpenRouter API key (overrides env)")
     parser.add_argument("--deepseek-base-url", help="DeepSeek base URL")
@@ -159,6 +163,7 @@ def main():
         "TRANSLATION_CHUNK_SIZE": args.translation_chunk_size,
         "TRANSLATION_TIMEOUT": args.translation_timeout,
         "OLLAMA_BASE_URL": args.ollama_base_url,
+        "LMSTUDIO_BASE_URL": args.lmstudio_base_url,
         "OPENROUTER_BASE_URL": args.openrouter_base_url,
         "OPENROUTER_API_KEY": args.openrouter_api_key,
         "DEEPSEEK_BASE_URL": args.deepseek_base_url,

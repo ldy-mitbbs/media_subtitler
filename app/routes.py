@@ -483,6 +483,7 @@ def get_config():
                 "backend": cfg.get("TRANSLATION_BACKEND"),
                 "model": cfg.get("TRANSLATION_MODEL"),
                 "ollama_base_url": cfg.get("OLLAMA_BASE_URL"),
+                "lmstudio_base_url": cfg.get("LMSTUDIO_BASE_URL"),
             },
             "gpu_base_url": cfg.get("GPU_BASE_URL"),
             "target_language": cfg.get("TARGET_LANGUAGE"),
@@ -499,6 +500,7 @@ def get_settings():
             "gpu_base_url": cfg.get("GPU_BASE_URL", ""),
             "remote_whisper_base_url": cfg.get("REMOTE_WHISPER_BASE_URL", ""),
             "ollama_base_url": cfg.get("OLLAMA_BASE_URL", ""),
+            "lmstudio_base_url": cfg.get("LMSTUDIO_BASE_URL", ""),
             "openrouter_base_url": cfg.get("OPENROUTER_BASE_URL", ""),
             "openrouter_api_key": cfg.get("OPENROUTER_API_KEY", ""),
             "openrouter_referer": cfg.get("OPENROUTER_REFERER", ""),
@@ -528,6 +530,7 @@ def update_settings():
         "GPU_BASE_URL",
         "REMOTE_WHISPER_BASE_URL",
         "OLLAMA_BASE_URL",
+        "LMSTUDIO_BASE_URL",
         "OPENROUTER_BASE_URL",
         "OPENROUTER_API_KEY",
         "OPENROUTER_REFERER",
@@ -581,6 +584,12 @@ def update_settings():
             f"{updates['GPU_BASE_URL']}:11434"
             if updates["GPU_BASE_URL"]
             else "http://127.0.0.1:11434"
+        )
+    if "GPU_BASE_URL" in updates and "LMSTUDIO_BASE_URL" not in data:
+        updates["LMSTUDIO_BASE_URL"] = (
+            f"{updates['GPU_BASE_URL']}:1234/v1"
+            if updates["GPU_BASE_URL"]
+            else "http://127.0.0.1:1234/v1"
         )
 
     save_settings(updates)
@@ -657,7 +666,7 @@ def _adaptive_chunk_size(backend, model):
     # DeepSeek V4 family handles large chunks reliably regardless of backend.
     if "deepseek-v4" in model_lc:
         return 20
-    if backend == "ollama":
+    if backend in ("ollama", "lmstudio"):
         return 8
     if backend == "deepseek":
         # DeepSeek v4-flash is very cheap and has 1M context; can handle
@@ -829,6 +838,7 @@ def create_job():
             "GPU_BASE_URL": gpu_base_url,
             "REMOTE_WHISPER_BASE_URL": f"{gpu_base_url}:5051" if gpu_base_url else None,
             "OLLAMA_BASE_URL": f"{gpu_base_url}:11434" if gpu_base_url else None,
+            "LMSTUDIO_BASE_URL": f"{gpu_base_url}:1234/v1" if gpu_base_url else None,
             "TRANSLATION_BACKEND": translation_backend,
             "TRANSLATION_MODEL": translation_model,
             "TRANSLATION_CHUNK_SIZE": user_chunk_size if user_chunk_size else _adaptive_chunk_size(

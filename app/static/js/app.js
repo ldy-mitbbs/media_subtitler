@@ -29,6 +29,7 @@
   const settingGpuBaseUrl = document.getElementById('setting-gpu-base-url');
   const settingRemoteWhisperUrl = document.getElementById('setting-remote-whisper-url');
   const settingOllamaUrl = document.getElementById('setting-ollama-url');
+  const settingLmstudioUrl = document.getElementById('setting-lmstudio-url');
   const settingOpenrouterUrl = document.getElementById('setting-openrouter-url');
   const settingOpenrouterApiKey = document.getElementById('setting-openrouter-api-key');
   const settingOpenrouterReferer = document.getElementById('setting-openrouter-referer');
@@ -203,6 +204,7 @@
       if (settingGpuBaseUrl) settingGpuBaseUrl.value = s.gpu_base_url || '';
       if (settingRemoteWhisperUrl) settingRemoteWhisperUrl.value = s.remote_whisper_base_url || '';
       if (settingOllamaUrl) settingOllamaUrl.value = s.ollama_base_url || '';
+      if (settingLmstudioUrl) settingLmstudioUrl.value = s.lmstudio_base_url || '';
       if (settingOpenrouterUrl) settingOpenrouterUrl.value = s.openrouter_base_url || '';
       if (settingOpenrouterApiKey) settingOpenrouterApiKey.value = s.openrouter_api_key || '';
       if (settingOpenrouterReferer) settingOpenrouterReferer.value = s.openrouter_referer || '';
@@ -254,6 +256,7 @@
         GPU_BASE_URL: settingGpuBaseUrl ? settingGpuBaseUrl.value.trim() : '',
         REMOTE_WHISPER_BASE_URL: settingRemoteWhisperUrl ? settingRemoteWhisperUrl.value.trim() : '',
         OLLAMA_BASE_URL: settingOllamaUrl ? settingOllamaUrl.value.trim() : '',
+        LMSTUDIO_BASE_URL: settingLmstudioUrl ? settingLmstudioUrl.value.trim() : '',
         OPENROUTER_BASE_URL: settingOpenrouterUrl ? settingOpenrouterUrl.value.trim() : '',
         OPENROUTER_API_KEY: settingOpenrouterApiKey ? settingOpenrouterApiKey.value.trim() : '',
         OPENROUTER_REFERER: settingOpenrouterReferer ? settingOpenrouterReferer.value.trim() : '',
@@ -485,7 +488,7 @@
   function updateGpuHint() {
     if (!gpuUrlHintEl || !gpuBaseUrlInput) return;
     const base = gpuBaseUrlInput.value.trim().replace(/\/+$/, '').replace(/:+$/, '');
-    gpuUrlHintEl.textContent = base ? `Remote ASR: ${base}:5051 · Ollama: ${base}:11434` : '';
+    gpuUrlHintEl.textContent = base ? `Remote ASR: ${base}:5051 · Ollama: ${base}:11434 · LM Studio: ${base}:1234` : '';
   }
 
   function computeAdaptiveChunkSize() {
@@ -494,7 +497,7 @@
     const modelLc = (model || '').toLowerCase();
     // DeepSeek V4 family handles large chunks reliably regardless of backend.
     if (modelLc.includes('deepseek-v4')) return 20;
-    if (backend === 'ollama') return 8;
+    if (backend === 'ollama' || backend === 'lmstudio') return 8;
     if (backend === 'deepseek') return 20;
     if (backend !== 'openrouter' || !model) return 10;
     if (model.toLowerCase().includes(':free')) return 5;
@@ -842,6 +845,7 @@
         <select class="job-backend">
           <option value="">默认后端</option>
           <option value="ollama">Ollama</option>
+          <option value="lmstudio">LM Studio</option>
           <option value="openrouter">OpenRouter</option>
           <option value="deepseek">DeepSeek</option>
         </select>
@@ -874,7 +878,7 @@
       // Reuse the global computeAdaptiveChunkSize logic by temporarily mirroring
       // the model selection. Compute inline:
       let n;
-      if (backend === 'ollama') n = 8;
+      if (backend === 'ollama' || backend === 'lmstudio') n = 8;
       else if (backend !== 'openrouter' || !model) n = 10;
       else if (model.includes(':free')) n = 5;
       else if (!cachedPricing) n = null;

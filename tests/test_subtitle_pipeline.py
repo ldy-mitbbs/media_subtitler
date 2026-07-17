@@ -122,6 +122,30 @@ def test_translate_chunk_accepts_zh_key(mocker):
     assert out == [{"target": "你好"}, {"target": "再见"}]
 
 
+def test_unsupported_translation_backend_raises():
+    with pytest.raises(RuntimeError, match="Unsupported TRANSLATION_BACKEND"):
+        _pipeline(TRANSLATION_BACKEND="nope")
+
+
+def test_lmstudio_backend_routes_to_openai_compatible(mocker):
+    pipeline = _pipeline(
+        TRANSLATION_BACKEND="lmstudio",
+        TRANSLATION_MODEL="qwen2.5-14b-instruct",
+        LMSTUDIO_BASE_URL="http://192.168.0.209:1234/v1",
+    )
+    spy = mocker.patch.object(
+        pipeline, "_chat_completion_openai_compatible", return_value="你好"
+    )
+
+    out = pipeline._chat_completion([{"role": "user", "content": "こんにちは"}])
+
+    assert out == "你好"
+    _, kwargs = spy.call_args
+    assert kwargs["base_url"] == "http://192.168.0.209:1234/v1"
+    # LM Studio ignores the bearer token but the OpenAI client needs a non-empty one.
+    assert kwargs["api_key"]
+
+
 def test_translate_segments_emits_source_plus_target(mocker):
     pipeline = _pipeline(TRANSLATION_CHUNK_SIZE=10)
     mocker.patch.object(

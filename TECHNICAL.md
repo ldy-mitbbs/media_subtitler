@@ -68,7 +68,7 @@ shell 环境变量 > .env.local > .env > 代码默认值
 主要配置分组：
 
 - **Whisper**: `WHISPER_BACKEND`, `WHISPER_MODEL`, `WHISPER_CPP_MODEL_PATH` 等
-- **翻译后端**: `TRANSLATION_BACKEND`（`ollama` / `openrouter` / `deepseek`）
+- **翻译后端**: `TRANSLATION_BACKEND`（`ollama` / `lmstudio` / `openrouter` / `deepseek`）
 - **目标语言**: `TARGET_LANGUAGE`（默认 `zh`）
 - **媒体目录**: `MEDIA_DIR`（CLI 相对路径解析使用；Web UI 直接处理本地绝对路径）
 
@@ -335,7 +335,7 @@ pytest -v
 
 - **Python**: >= 3.10
 - **语音识别**: OpenAI Whisper（`faster-whisper` 或 `whisper.cpp`）
-- **翻译**: Ollama / OpenRouter / DeepSeek（OpenAI-compatible API）
+- **翻译**: Ollama / LM Studio / OpenRouter / DeepSeek（OpenAI-compatible API）
 - **Web**: Flask
 - **测试**: pytest + pytest-mock
 - **构建**: setuptools（`pyproject.toml`）
