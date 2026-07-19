@@ -31,7 +31,40 @@
 
 ## 安装
 
-### macOS / Linux
+### macOS（推荐路径）
+
+全新的 Mac 上只需要一条命令：
+
+```bash
+git clone <repo-url> media_subtitler
+cd media_subtitler
+./scripts/setup-macos.sh
+```
+
+脚本会自动完成：
+
+- 用 Homebrew 装好 `ffmpeg` 和 `whisper-cpp`（已经装过、或已有自己编译的
+  `whisper.cpp` 会被自动探测并复用，不会重复安装）；
+- 创建 `.venv` 并安装依赖；
+- 下载 `ggml-large-v3-turbo` 模型到 `~/.cache/media_subtitler/models/`
+  （约 1.5GB，Apple Silicon 上的默认模型）；
+- 生成 `settings.json`（已在 `.gitignore` 里），并提示填入 DeepSeek API key；
+- 最后逐项自检，把每一项配置是否可用打印出来。
+
+脚本可以**重复运行**：已装好的工具、已下载的模型和已填的 API key 都会保留。
+
+常用参数：
+
+```bash
+./scripts/setup-macos.sh --skip-model      # 不下载模型
+./scripts/setup-macos.sh --model large-v3  # 换用 large-v3（3.1GB，慢但更稳）
+./scripts/setup-macos.sh --skip-brew       # 只检查，不通过 Homebrew 安装
+```
+
+想进一步压榨 Apple Silicon 的性能，见 [docs/macos-coreml.md](docs/macos-coreml.md)
+（CoreML 编码器，encoder 约快 2-3 倍）。
+
+### Linux
 
 ```bash
 python3.12 -m venv .venv

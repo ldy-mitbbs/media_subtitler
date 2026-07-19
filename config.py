@@ -133,6 +133,13 @@ def _default_whisper_backend() -> str:
     return "whispercpp" if IS_APPLE_SILICON else "faster-whisper"
 
 
+def _default_whisper_model() -> str:
+    # large-v3-turbo is ~8x faster on the encoder than large-v3 with near-equal
+    # quality on clean dialogue, and half the download. On Apple Silicon the
+    # whisper.cpp/Metal path makes that trade clearly worth it.
+    return "large-v3-turbo" if IS_APPLE_SILICON else "large-v3"
+
+
 def _default_compute_type() -> str:
     return "int8" if IS_APPLE_SILICON else "auto"
 
@@ -182,7 +189,7 @@ class Config:
     ASR_MODEL = _get_nonempty_setting(
         SETTINGS,
         "ASR_MODEL",
-        _get_nonempty_setting(SETTINGS, "WHISPER_MODEL", "large-v3"),
+        _get_nonempty_setting(SETTINGS, "WHISPER_MODEL", _default_whisper_model()),
     )
     ASR_DEVICE = _get_nonempty_setting(
         SETTINGS,

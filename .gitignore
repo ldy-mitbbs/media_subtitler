@@ -14,6 +14,7 @@ media/
 settings.json
 media-subtitler-finder.log
 .vscode/
+.idea/
 
 # Desktop packaging outputs
 build/
