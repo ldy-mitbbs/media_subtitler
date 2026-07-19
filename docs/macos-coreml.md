@@ -9,12 +9,59 @@
 CoreML 编码器 —— 它把 encoder 放到 Neural Engine 上跑，encoder 大约能快 2-3 倍，
 而 encoder 正是转写耗时的主要部分。
 
+## 前置条件：必须装完整版 Xcode
+
+⚠️ **只装 Command Line Tools 是不够的。** 模型转换的最后一步要用 `coremlc`
+把 `.mlpackage` 编译成 `.mlmodelc`，而这个工具只随**完整版 Xcode** 分发。
+只有 CLT 的机器会在转换快结束时报错：
+
+```
+xcrun: error: unable to find utility "coremlc", not a developer tool or in PATH
+```
+
+先确认：
+
+```bash
+xcode-select -p          # 若输出 /Library/Developer/CommandLineTools 则不够
+xcrun --find coremlc     # 能找到才可以继续
+```
+
+装法（约 10-17GB，从 App Store 或 developer.apple.com 下载 Xcode 后）：
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+```
+
 ## 何时值得做
 
 - 你经常处理**长视频**（>30 分钟），转写时间是瓶颈。
 - 你愿意为**每个模型**做一次约 5-10 分钟的一次性转换。
+- 你愿意为此装一个完整版 Xcode（见上）。
 
-如果只是偶尔跑几个短片，Metal 路径已经够快，不必折腾。
+如果只是偶尔跑几个短片，Metal 路径已经够快，**不必折腾**。10GB+ 的 Xcode
+只为了 encoder 快一点，通常不划算 —— 先用 Metal 路径实测一下速度，确认转写
+确实是瓶颈再说。
+
+### 实测基线（Metal，M 系列，large-v3-turbo）
+
+605 秒音频，`whisper-cli -t 8`，取两次运行的较优值：
+
+| 指标 | 数值 |
+| --- | --- |
+| encode | 5263 ms |
+| 总计 | 7275 ms |
+| 实时倍率 | **约 83x** |
+| encoder 占比 | 72% |
+
+换算成实际素材：30 分钟一集约 **22 秒**转写完，2 小时电影约 **87 秒**。
+
+即使 CoreML 真的把 encoder 提速 2.5 倍，端到端也只有约 1.77x：2 小时电影
+87 秒 → 49 秒，省下不到 40 秒。而**翻译**（DeepSeek API，几百条字幕）通常要
+几分钟，才是真正的瓶颈。
+
+**结论：绝大多数情况下不要装 Xcode 搞 CoreML。** 先去优化翻译那一段
+（`TRANSLATION_CHUNK_SIZE`、换更快的模型）收益大得多。
 
 ## 步骤
 
