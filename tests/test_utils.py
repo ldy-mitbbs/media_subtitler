@@ -18,6 +18,7 @@ from app.models.subtitle_pipeline import (
     parse_srt_timestamp,
     read_srt,
     write_bilingual_ass,
+    ass_translation_font,
     write_srt,
 )
 from app.routes import _safe_unicode_filename, _supports_json_mode, _adaptive_chunk_size
@@ -150,7 +151,9 @@ class TestBilingualASS:
 
         content = path.read_text(encoding="utf-8-sig")
 
-        assert "Style: Translation,PingFang SC,50" in content
+        # The font name is resolved against the host's fonts, so assert the
+        # style exists at the right size rather than pinning a specific family.
+        assert f"Style: Translation,{ass_translation_font()},50" in content
         assert "Source,,144,144,12,," in content
         assert "接下来凉\\N鞋和出游" in content
         assert long_translation not in content

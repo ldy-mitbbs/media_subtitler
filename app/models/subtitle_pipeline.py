@@ -4,6 +4,7 @@ Produces bilingual SRT files: original transcript + translated line per cue.
 Prompts are tuned for natural spoken dialogue rather than generic copy.
 """
 
+import functools
 import html
 import json
 import os
@@ -253,6 +254,61 @@ ASS_VERTICAL_MARGIN = 12
 ASS_SOURCE_FONT_SIZE = 44
 ASS_TRANSLATION_FONT_SIZE = 50
 
+# Font names are baked into the .ass as plain strings. libass can substitute a
+# *glyph* from another font, but only once the named font itself resolves --
+# if the name matches nothing at all, the whole line renders as tofu boxes.
+# "PingFang SC" was hardcoded here and is absent on recent macOS (it ships as
+# an on-demand asset), so every translated line rendered as boxes.
+#
+# Probe fontconfig, which is what libass uses, and fall back to a name that is
+# merely plausible when fontconfig is unavailable (e.g. on Windows).
+ASS_SOURCE_FONT_CANDIDATES = (
+    "Noto Sans CJK JP",
+    "Hiragino Sans",
+    "Yu Gothic",
+    "MS Gothic",
+)
+ASS_TRANSLATION_FONT_CANDIDATES = (
+    "Noto Sans CJK SC",
+    "Hiragino Sans GB",
+    "PingFang SC",
+    "Microsoft YaHei",
+    "SimHei",
+)
+
+
+@functools.lru_cache(maxsize=8)
+def _resolve_font(candidates, fallback):
+    """Return the first candidate fontconfig can actually resolve.
+
+    fc-match always returns *something*, so compare the resolved family
+    against the request rather than trusting a zero exit status.
+    """
+    fc_match = shutil.which("fc-match")
+    if not fc_match:
+        return fallback
+    for name in candidates:
+        try:
+            out = subprocess.run(
+                [fc_match, "-f", "%{family}", name],
+                capture_output=True, text=True, timeout=5,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        # fc-match returns comma-separated aliases for the matched family.
+        families = [f.strip().lower() for f in out.split(",")]
+        if name.lower() in families:
+            return name
+    return fallback
+
+
+def ass_source_font():
+    return _resolve_font(ASS_SOURCE_FONT_CANDIDATES, "Hiragino Sans")
+
+
+def ass_translation_font():
+    return _resolve_font(ASS_TRANSLATION_FONT_CANDIDATES, "Microsoft YaHei")
+
 
 def _normalize_ass_play_res(play_res=None):
     if not play_res:
@@ -419,6 +475,8 @@ def detect_video_play_res(media_path):
 
 def write_bilingual_ass(segments, output_path, play_res=None):
     play_res_x, play_res_y = _normalize_ass_play_res(play_res)
+    source_font = ass_source_font()
+    translation_font = ass_translation_font()
     header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 0
@@ -430,8 +488,8 @@ LayoutResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Source,Hiragino Sans,{ASS_SOURCE_FONT_SIZE},&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
-Style: Translation,PingFang SC,{ASS_TRANSLATION_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
+Style: Source,{source_font},{ASS_SOURCE_FONT_SIZE},&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
+Style: Translation,{translation_font},{ASS_TRANSLATION_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
