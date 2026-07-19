@@ -5,9 +5,14 @@
 路径。两者构建配置基本等价 —— Homebrew formula 并没有关掉 Metal 或 Accelerate，
 它只是让这些选项保持默认值，而在 Apple Silicon 上这些默认值本来就是 `ON`。
 
-也就是说：**单纯"从源码编译"并不会更快**。唯一真正值得折腾的从源码构建选项是
-CoreML 编码器 —— 它把 encoder 放到 Neural Engine 上跑，encoder 大约能快 2-3 倍，
-而 encoder 正是转写耗时的主要部分。
+也就是说：**单纯"从源码编译"并不会更快**。
+
+唯一在原理上可能更快的选项是 CoreML 编码器（把 encoder 放到 Neural Engine 上
+跑）。网上常见的说法是 encoder 能快 2-3 倍。
+
+> ⚠️ **本仓库实测结论：在 M 系列 + macOS 26 + large-v3-turbo 上，CoreML 比
+> Metal 慢约 40%。** 具体数字见下方「实测对比」。请不要为了 CoreML 去装
+> 完整版 Xcode。本文保留下来，是为了记录这个否定结论和复现方法。
 
 ## 前置条件：必须装完整版 Xcode
 
@@ -33,35 +38,41 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 sudo xcodebuild -license accept
 ```
 
-## 何时值得做
+## 实测对比：CoreML 反而更慢
 
-- 你经常处理**长视频**（>30 分钟），转写时间是瓶颈。
-- 你愿意为**每个模型**做一次约 5-10 分钟的一次性转换。
-- 你愿意为此装一个完整版 Xcode（见上）。
+同一台机器、同一个 605 秒音频、同一个 `ggml-large-v3-turbo.bin`，
+`whisper-cli -t 8`，各跑 3 次；CoreML 的第 1 次跑（ANE kernel 首次编译）已排除：
 
-如果只是偶尔跑几个短片，Metal 路径已经够快，**不必折腾**。10GB+ 的 Xcode
-只为了 encoder 快一点，通常不划算 —— 先用 Metal 路径实测一下速度，确认转写
-确实是瓶颈再说。
+| 构建 | encode | 总计 | 实时倍率 |
+| --- | --- | --- | --- |
+| Metal（默认） | **5546 ms** | **7788 ms** | **78x** |
+| CoreML | 7812 ms | 10875 ms | 56x |
 
-### 实测基线（Metal，M 系列，large-v3-turbo）
+- encoder：**0.71x**（慢 40%）
+- 端到端：**0.72x**
+- 2 小时电影：93 秒 → 129 秒
 
-605 秒音频，`whisper-cli -t 8`，取两次运行的较优值：
+CoreML 确实生效了（启动日志有 `loading Core ML model` 和 `COREML = 1`），
+它只是**在这个组合下更慢**。合理的解释是：Neural Engine 的设计目标是低功耗，
+峰值吞吐并不如新款 M 系列的 GPU；而 `large-v3-turbo` 的 encoder 又足够大，
+在 Metal 上能把 GPU 喂满。网上那些 2-3 倍的说法多来自较早的芯片和较小的模型。
 
-| 指标 | 数值 |
-| --- | --- |
-| encode | 5263 ms |
-| 总计 | 7275 ms |
-| 实时倍率 | **约 83x** |
-| encoder 占比 | 72% |
+### 结论
 
-换算成实际素材：30 分钟一集约 **22 秒**转写完，2 小时电影约 **87 秒**。
+**不要为了 CoreML 装完整版 Xcode。** 默认的 Metal 路径（Homebrew bottle 或
+`scripts/setup-macos.sh` 装的那份）就是这台机器上最快的选择。
 
-即使 CoreML 真的把 encoder 提速 2.5 倍，端到端也只有约 1.77x：2 小时电影
-87 秒 → 49 秒，省下不到 40 秒。而**翻译**（DeepSeek API，几百条字幕）通常要
-几分钟，才是真正的瓶颈。
+转写本来也不是瓶颈：605 秒音频 7.8 秒跑完（78x 实时），30 分钟一集约 23 秒，
+2 小时电影约 93 秒。真正花时间的是**翻译**（DeepSeek API，几百条字幕，通常几
+分钟）。要提速就去调 `TRANSLATION_CHUNK_SIZE` 或换更快的翻译模型。
 
-**结论：绝大多数情况下不要装 Xcode 搞 CoreML。** 先去优化翻译那一段
-（`TRANSLATION_CHUNK_SIZE`、换更快的模型）收益大得多。
+### 什么情况下也许还值得再测一次
+
+- 换了芯片代际（尤其是 ANE 大改的机型）。
+- 换成**更小的模型**（`base` / `small`）—— 小模型在 ANE 上的相对表现通常更好。
+- whisper.cpp 的 CoreML 后端有大的更新。
+
+复现方法见下方「步骤」，测完请回来更新上面这张表。
 
 ## 步骤
 
@@ -113,10 +124,27 @@ cmake --build build --config Release -j "$(sysctl -n hw.logicalcpu)"
 ## 验证
 
 第一次用 CoreML 跑某个模型时，加载会明显变慢（系统在编译 ANE kernel，属于正常现象），
-之后会走缓存。确认确实启用了：
+之后会走缓存。
+
+**不要用 `otool -L .../whisper-cli | grep -i coreml` 来判断**，这个检查两头都会错：
+
+- 如果构建目录名里带 `coreml`（例如 `build-coreml/`），`otool` 报错时输出的路径
+  本身就含 `coreml`，会**假阳性**；
+- 默认是动态库构建，`whisper-cli` 只直接链接 `libwhisper.1.dylib`，CoreML 在
+  `whisper-cli -> libwhisper -> libwhisper.coreml.dylib -> CoreML.framework`
+  这条链的更深处，直接查 CLI 会**假阴性**。
+
+用运行时输出判断才可靠：
 
 ```bash
-otool -L build/bin/whisper-cli | grep -i coreml   # 应该有 CoreML.framework
+./build/bin/whisper-cli -m models/ggml-large-v3-turbo.bin -f samples/jfk.wav -nt 2>&1 \
+  | grep -iE "core ?ml|COREML"
 ```
 
-转写时 stderr 里会打印 `whisper_init_state: loading Core ML model from ...`。
+启用成功时会看到：
+
+```
+whisper_init_state: loading Core ML model from '.../ggml-large-v3-turbo-encoder.mlmodelc'
+whisper_init_state: Core ML model loaded
+system_info: ... WHISPER : COREML = 1 | ...
+```
