@@ -1,3 +1,0 @@
-[console_scripts]
-media-subtitler-models = media_subtitler.models:main
-media-subtitler-whisper-server = media_subtitler.remote_whisper_server:main
