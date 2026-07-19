@@ -42,7 +42,10 @@ media-subtitler-whisper-server = "media_subtitler.remote_whisper_server:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["media_subtitler*"]
-exclude = ["app*", "tests*", "media*"]
+# NB: do not add "media*" here -- that glob also matches "media_subtitler"
+# and silently ships an empty package (exclude wins over include). The
+# media/ data dir has no __init__.py, so it is never discovered anyway.
+exclude = ["app*", "tests*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
