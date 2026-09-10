@@ -1381,6 +1381,15 @@ class SubtitlePipeline:
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                # Broadcast TS files carry ~10 streams (multi-audio + ARIB
+                # caption/data); default probesize can miss the caption PID.
+                # fix_sub_duration gives ARIB cues sane end times (otherwise
+                # the SRT shows end = start + entire remaining duration).
+                "-fix_sub_duration",
+                "-analyzeduration",
+                "200M",
+                "-probesize",
+                "200M",
                 "-i",
                 str(media_path),
                 "-map",
@@ -1416,8 +1425,18 @@ class SubtitlePipeline:
             )
             return segments, source_language
         finally:
-            if temp_srt.exists():
-                temp_srt.unlink()
+            # Best-effort cleanup. On macOS SMB mounts, unlinking right after
+            # ffmpeg exits (or is killed) can raise EBUSY while the server
+            # still holds the handle — never let cleanup mask the real error.
+            for attempt in range(3):
+                try:
+                    if temp_srt.exists():
+                        temp_srt.unlink()
+                    break
+                except OSError:
+                    if attempt == 2:
+                        break
+                    time.sleep(0.5)
 
     @staticmethod
     def _ffmpeg_has_decoder(codec_name):
@@ -1529,6 +1548,11 @@ class SubtitlePipeline:
                     line = line.strip()
                     if line:
                         output_lines.append(line)
+                        # Any ffmpeg stdout chatter (progress blocks print
+                        # out_time=N/A for subtitle-only outputs) proves the
+                        # process is alive — count it as activity, not just
+                        # output-file growth, which stalls for sparse captions.
+                        last_output_activity = now
                     if line.startswith("out_time="):
                         pulse(f"{label}: {line.split('=', 1)[1]}")
                     elif line.startswith("out_time_ms="):
