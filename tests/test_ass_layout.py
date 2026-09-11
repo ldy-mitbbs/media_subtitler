@@ -153,15 +153,21 @@ def test_arib_display_canvas_prevents_anamorphic_video_stretch(tmp_path, include
     assert (layout.events[0] in text) == include_source
 
 
-def test_background_default_is_half_transparent_and_explicit_alphas_survive(tmp_path):
-    originals = [event("半透明"), event("不透明", x=158, y=449, tags=r"{\4a&H00&}")]
+@pytest.mark.parametrize("backcolour", ["&H0", "&H00000000", "&H7F000000"])
+def test_background_default_is_transparent_and_explicit_alphas_survive(tmp_path, backcolour):
+    originals = [
+        event("背景なし"),
+        event("不透明", x=158, y=449, tags=r"{\4a&H00&}"),
+        event("透明", start="0:00:05.00", end="0:00:06.00", tags=r"{\4a&Hff&}"),
+    ]
     layout = layout_for(tmp_path, originals)
+    layout.header = [line.replace(",&H0,&H0,", f",&H0,{backcolour},") for line in layout.header]
     original_header = list(layout.header)
     out = tmp_path / "bilingual.ass"
-    layout.write(translations(layout, ["半透明", "不透明"]), out, "PingFang SC")
+    layout.write(translations(layout, ["没有背景", "不透明背景", "透明背景"]), out, "PingFang SC")
     text = out.read_text(encoding="utf-8-sig")
     source_style = next(line for line in text.splitlines() if line.startswith("Style: Default,"))
-    assert source_style.split(",")[6] == "&H7F000000"
+    assert source_style.split(",")[6] == "&HFF000000"
     assert all(line in text for line in originals)
     assert layout.header == original_header
     translated_style = next(line for line in text.splitlines() if line.startswith("Style: AribTranslation,"))
@@ -169,9 +175,15 @@ def test_background_default_is_half_transparent_and_explicit_alphas_survive(tmp_
     assert translated_style.split(",")[15] == "1"
 
 
-@pytest.mark.parametrize("backcolour,borderstyle", [("&H7F000000", "4"), ("&H40000000", "4"), ("&H0", "1")])
-def test_background_repair_preserves_other_style_settings(backcolour, borderstyle):
-    from media_subtitler.ass_layout import restore_arib_background
+@pytest.mark.parametrize("name,backcolour,borderstyle", [
+    ("Default", "&HFF000000", "4"),
+    ("Default", "&H40000000", "4"),
+    ("Default", "&H000000FF", "4"),
+    ("Default", "&H0", "1"),
+    ("Custom", "&H0", "4"),
+])
+def test_transparent_background_preserves_other_style_settings(name, backcolour, borderstyle):
+    from media_subtitler.ass_layout import transparent_arib_background
     fmt = ["name", "backcolour", "borderstyle"]
-    header = [f"Style: Default,{backcolour},{borderstyle}"]
-    assert restore_arib_background(header, fmt) == header
+    header = [f"Style: {name},{backcolour},{borderstyle}"]
+    assert transparent_arib_background(header, fmt) == header

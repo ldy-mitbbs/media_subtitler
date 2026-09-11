@@ -92,12 +92,107 @@ def test_repair_mojibake_segments_handles_single_short_clip_segment():
     assert repaired[0]["text"] == original
 
 
-def test_translate_with_recovery_splits_batch_on_timeout(mocker):
+@pytest.mark.parametrize("error_type", [requests.Timeout, requests.ConnectionError])
+def test_translate_with_recovery_retries_same_batch_on_network_error(mocker, error_type):
+    pipeline = _pipeline(TRANSLATION_ERROR_BUDGET=1)
+    expected = [{"target": "你好"}, {"target": "再见"}]
+    translate = mocker.patch.object(
+        pipeline, "_translate_chunk",
+        side_effect=[error_type("Can't assign requested address"), error_type("offline"), expected],
+    )
+    sleep = mocker.patch("app.models.subtitle_pipeline.time.sleep")
+    warnings = []
+
+    result = pipeline._translate_with_recovery(
+        ["こんにちは", "さようなら"], source_language="ja", error_cb=warnings.append,
+    )
+
+    assert result == expected
+    assert translate.call_count == 3
+    assert all(call.args[0] == ["こんにちは", "さようなら"] for call in translate.call_args_list)
+    assert sleep.call_args_list == [mocker.call(2), mocker.call(4)]
+    assert pipeline._translation_error_count == 0
+    assert "Can't assign requested address" in warnings[0]
+    assert "retry 2/3" in warnings[1]
+
+
+@pytest.mark.parametrize("single_line_fallback", [False, True])
+def test_network_failure_aborts_without_splitting_or_retaining_source(mocker, single_line_fallback):
+    pipeline = _pipeline()
+    error = requests.ConnectionError("[Errno 49] Can't assign requested address")
+    chunk = mocker.patch.object(pipeline, "_translate_chunk", side_effect=error)
+    single = mocker.patch.object(pipeline, "_translate_single", side_effect=error)
+    sleep = mocker.patch("app.models.subtitle_pipeline.time.sleep")
+    translate = pipeline._fallback_translations if single_line_fallback else pipeline._translate_with_recovery
+
+    with pytest.raises(FatalTranslationError, match="network request failed after 4 attempts") as caught:
+        translate(["a", "b", "c", "d"], source_language="ja")
+
+    assert "Can't assign requested address" in str(caught.value)
+    assert "credentials/quota" not in str(caught.value)
+    assert caught.value.__cause__ is error
+    assert sleep.call_args_list == [mocker.call(2), mocker.call(4), mocker.call(8)]
+    assert chunk.call_count == (0 if single_line_fallback else 4)
+    assert single.call_count == (4 if single_line_fallback else 0)
+    assert pipeline._translation_error_count == 0
+
+
+def test_single_line_fallback_recovers_from_network_error(mocker):
+    pipeline = _pipeline()
+    translate = mocker.patch.object(
+        pipeline, "_translate_single",
+        side_effect=[requests.Timeout("read timed out"), {"target": "你好"}],
+    )
+    mocker.patch("app.models.subtitle_pipeline.time.sleep")
+
+    assert pipeline._fallback_translations(["こんにちは"], source_language="ja") == [{"target": "你好"}]
+    assert translate.call_count == 2
+
+
+@pytest.mark.parametrize("cancel_before_request", [False, True])
+def test_network_retry_honors_cancellation(mocker, cancel_before_request):
+    pipeline = _pipeline()
+    event = mocker.Mock()
+    event.is_set.return_value = cancel_before_request
+    event.wait.return_value = True
+    pipeline._active_cancel_event = event
+    translate = mocker.patch.object(
+        pipeline, "_translate_single", side_effect=requests.ConnectionError("offline"),
+    )
+
+    with pytest.raises(FatalTranslationError, match="cancelled by user"):
+        pipeline._fallback_translations(["a", "b"], source_language="ja")
+
+    assert translate.call_count == (0 if cancel_before_request else 1)
+    if cancel_before_request:
+        event.wait.assert_not_called()
+    else:
+        event.wait.assert_called_once_with(2)
+
+
+def test_auth_failure_is_not_retried_as_a_network_error(mocker):
+    pipeline = _pipeline()
+    response = requests.Response()
+    response.status_code = 401
+    response._content = b"Invalid API key"
+    translate = mocker.patch.object(
+        pipeline, "_translate_chunk", side_effect=requests.HTTPError(response=response),
+    )
+    sleep = mocker.patch("app.models.subtitle_pipeline.time.sleep")
+
+    with pytest.raises(FatalTranslationError, match="unrecoverable HTTP 401: Invalid API key"):
+        pipeline._translate_with_recovery(["a", "b"], source_language="ja")
+
+    assert translate.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_translate_with_recovery_still_splits_batch_on_item_count_mismatch(mocker):
     pipeline = _pipeline()
 
     def translate_chunk(texts, source_language, target_language=None, stream_cb=None):
         if len(texts) > 1:
-            raise requests.Timeout("timed out")
+            return []
         return [{"target": f"zh:{texts[0]}"}]
 
     mocked = mocker.patch.object(pipeline, "_translate_chunk", side_effect=translate_chunk)
@@ -199,7 +294,7 @@ def test_fallback_still_aborts_once_the_error_budget_is_spent(mocker):
         side_effect=ValueError("Model did not return valid JSON"),
     )
 
-    with pytest.raises(FatalTranslationError):
+    with pytest.raises(FatalTranslationError, match="Last error: ValueError: Model did not return valid JSON"):
         pipeline._fallback_translations(["a", "b", "c"], source_language="ja")
 
 
@@ -302,6 +397,45 @@ def test_process_skip_transcription_requires_existing_orig_srt(tmp_path):
 
     with pytest.raises(RuntimeError, match="original SRT not found"):
         pipeline.process(media_path, skip_transcription=True)
+
+
+@pytest.mark.parametrize("network_fails", [False, True])
+def test_process_reuses_translation_session_and_always_closes_it(tmp_path, mocker, network_fails):
+    media = tmp_path / "sample.ts"
+    media.write_bytes(b"fake")
+    media.with_suffix(".orig.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nありがとう\n\n", encoding="utf-8",
+    )
+    pipeline = _pipeline(
+        TRANSLATION_BACKEND="deepseek", DEEPSEEK_API_KEY="test-key", TRANSLATION_CHUNK_SIZE=1,
+    )
+    session = requests.Session()
+    session_factory = mocker.patch("requests.Session", return_value=session)
+    close = mocker.spy(session, "close")
+    response = requests.Response()
+    response.status_code = 200
+    response._content = json.dumps({
+        "choices": [{"message": {"content": '{"items":[{"target":"你好"}]}'}}],
+    }).encode()
+    post = mocker.patch.object(session, "post", return_value=response)
+    fresh_post = mocker.patch("requests.post", side_effect=AssertionError("unexpected fresh session"))
+    mocker.patch("app.models.subtitle_pipeline.time.sleep")
+    mocker.patch("app.models.subtitle_pipeline.detect_video_play_res", return_value=(1920, 1080))
+    if network_fails:
+        post.side_effect = requests.ConnectionError("offline")
+        with pytest.raises(FatalTranslationError, match="network request failed"):
+            pipeline.process(media, skip_transcription=True)
+        assert post.call_count == 4
+    else:
+        result = pipeline.process(media, skip_transcription=True)
+        assert result["stage"] == "completed"
+        assert post.call_count == 2
+    fresh_post.assert_not_called()
+    session_factory.assert_called_once_with()
+    close.assert_called_once_with()
+    assert pipeline._translation_session is None
+    assert pipeline._active_cancel_event is None
 
 
 def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
@@ -740,4 +874,3 @@ def test_openrouter_asr_backend_posts_audio_and_writes_srt(tmp_path, mocker):
     assert payload["model"] == "qwen/qwen3-asr-flash-2026-02-10"
     assert "data" in payload["input_audio"]
     assert payload["input_audio"]["format"] == "wav"
-

@@ -188,11 +188,7 @@ class RateLimitError(RuntimeError):
 
 
 class FatalTranslationError(RuntimeError):
-    """Raised for unrecoverable model/config errors (e.g. JSON mode unsupported).
-
-    Differs from RateLimitError in that retrying with smaller chunks won't help —
-    the model itself rejected the request shape, so we should abort immediately.
-    """
+    """Stop translation when further batch splitting cannot recover the job."""
 
 
 _FATAL_PROVIDER_HINTS = (
@@ -737,6 +733,7 @@ class SubtitlePipeline:
             "total_tokens": 0,
         }
         self._active_cancel_event = None
+        self._translation_session = None
         # Circuit-breaker state for the current process() call.
         self._translation_error_count = 0
         self._translation_error_budget = int(
@@ -759,7 +756,7 @@ class SubtitlePipeline:
                 return val
         return default
 
-    def _note_translation_error(self):
+    def _note_translation_error(self, error):
         self._translation_error_count += 1
         if (
             self._translation_error_budget > 0
@@ -768,8 +765,8 @@ class SubtitlePipeline:
             raise FatalTranslationError(
                 f"Aborting after {self._translation_error_count} translation errors "
                 f"(budget: {self._translation_error_budget}). "
-                "Pick a different model or check API credentials/quota."
-            )
+                f"Last error: {type(error).__name__}: {error}"
+            ) from error
 
     # ------------------------------------------------------------------ public
 
@@ -912,18 +909,23 @@ class SubtitlePipeline:
         if progress_cb:
             progress_cb(60, f"Translating subtitles to {target_name}")
 
-        bilingual_segments = self._translate_segments(
-            segments,
-            source_language=normalized_lang,
-            target_language=target_lang,
-            progress_cb=progress_cb,
-            stream_cb=translation_stream_cb,
-            error_cb=translation_stream_cb,
-            cancel_event=cancel_event,
-        )
-        # Clear the cancel event reference once translation finishes so it
-        # doesn't leak into a later call.
-        self._active_cancel_event = None
+        # Keep one HTTPS connection alive across batches and recovery requests.
+        # requests.post() alone creates and discards a session on every call.
+        with requests.Session() as session:
+            self._translation_session = session
+            try:
+                bilingual_segments = self._translate_segments(
+                    segments,
+                    source_language=normalized_lang,
+                    target_language=target_lang,
+                    progress_cb=progress_cb,
+                    stream_cb=translation_stream_cb,
+                    error_cb=translation_stream_cb,
+                    cancel_event=cancel_event,
+                )
+            finally:
+                self._translation_session = None
+                self._active_cancel_event = None
         bilingual_srt = media_path.with_suffix(".bilingual.srt")
         bilingual_ass = media_path.with_suffix(".bilingual.ass")
         translation_ass = None
@@ -2369,6 +2371,44 @@ class SubtitlePipeline:
 
         return bilingual_segments
 
+    def _with_translation_network_retry(self, translate, *args, error_cb=None, **kwargs):
+        """Retry transport failures without fanning out into smaller batches.
+
+        Network retries have their own bound and do not spend the model-output
+        error budget. An exhausted connection retry stops the entire job rather
+        than silently leaving source text in place of translations.
+        """
+        delays = (2, 4, 8)
+        cancel_event = self._active_cancel_event
+        for attempt in range(len(delays) + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise FatalTranslationError("Translation cancelled by user")
+            try:
+                return translate(*args, **kwargs)
+            except requests.HTTPError:
+                # HTTP status handling (auth, quota, JSON mode) belongs to the
+                # existing recovery logic, not the network retry loop.
+                raise
+            except requests.RequestException as exc:
+                if attempt == len(delays):
+                    raise FatalTranslationError(
+                        f"Translation API network request failed after {attempt + 1} "
+                        f"attempts ({len(delays)} retries). "
+                        f"Last error: {type(exc).__name__}: {exc}"
+                    ) from exc
+                delay = delays[attempt]
+                if error_cb:
+                    error_cb(
+                        f"  ⚠ translation API network error: {type(exc).__name__}: {exc}; "
+                        f"retrying the same request in {delay}s "
+                        f"(retry {attempt + 1}/{len(delays)})"
+                    )
+                if cancel_event is not None:
+                    if cancel_event.wait(delay):
+                        raise FatalTranslationError("Translation cancelled by user") from exc
+                else:
+                    time.sleep(delay)
+
     def _translate_with_recovery(
         self, texts, source_language, target_language=None, stream_cb=None, error_cb=None
     ):
@@ -2377,11 +2417,13 @@ class SubtitlePipeline:
 
         target_lang = target_language or self.target_language
         try:
-            translations = self._translate_chunk(
+            translations = self._with_translation_network_retry(
+                self._translate_chunk,
                 texts,
                 source_language=source_language,
                 target_language=target_lang,
                 stream_cb=stream_cb,
+                error_cb=error_cb,
             )
             if len(translations) == len(texts):
                 return translations
@@ -2426,15 +2468,11 @@ class SubtitlePipeline:
                 raise FatalTranslationError(
                     f"Translation API returned unrecoverable HTTP {status}: {body[:200]}"
                 ) from exc
-            self._note_translation_error()
-        except requests.RequestException as exc:
-            if error_cb:
-                error_cb(f"  \u26a0 network error talking to translation API: {exc}")
-            self._note_translation_error()
+            self._note_translation_error(exc)
         except ValueError as exc:
             if error_cb:
                 error_cb(f"  \u26a0 could not parse translation JSON: {exc}")
-            self._note_translation_error()
+            self._note_translation_error(exc)
 
         if len(texts) == 1:
             return self._fallback_translations(
@@ -2540,11 +2578,13 @@ class SubtitlePipeline:
         for text in texts:
             try:
                 results.append(
-                    self._translate_single(
+                    self._with_translation_network_retry(
+                        self._translate_single,
                         text,
                         source_language=source_language,
                         target_language=target_lang,
                         stream_cb=stream_cb,
+                        error_cb=error_cb,
                     )
                 )
             except (RateLimitError, FatalTranslationError):
@@ -2566,7 +2606,7 @@ class SubtitlePipeline:
                         "keeping source text for this line"
                     )
                 # Raises FatalTranslationError once the error budget is spent.
-                self._note_translation_error()
+                self._note_translation_error(exc)
                 results.append({"target": ""})
             except Exception as exc:
                 if error_cb:
@@ -2574,7 +2614,7 @@ class SubtitlePipeline:
                         f"  \u26a0 single-line translation failed ({type(exc).__name__}): {exc}; "
                         "keeping source text for this line"
                     )
-                self._note_translation_error()
+                self._note_translation_error(exc)
                 results.append({"target": ""})
         return results
 
@@ -2613,6 +2653,10 @@ class SubtitlePipeline:
 
     # ----------------------------------------------------------- chat completion
 
+    def _translation_post(self, url, **kwargs):
+        client = self._translation_session or requests
+        return client.post(url, **kwargs)
+
     def _chat_completion(self, messages, stream_cb=None, json_mode=False, max_tokens=None):
         kwargs = {"stream_cb": stream_cb, "json_mode": json_mode, "max_tokens": max_tokens}
         if self.translation_backend == "openrouter":
@@ -2638,7 +2682,7 @@ class SubtitlePipeline:
         url = f"{self.ollama_base_url.rstrip('/')}/api/chat"
 
         if stream_cb:
-            response = requests.post(
+            response = self._translation_post(
                 url, json=payload, timeout=self.translation_timeout, stream=True
             )
             response.raise_for_status()
@@ -2654,7 +2698,7 @@ class SubtitlePipeline:
                     stream_cb(piece)
             return "".join(chunks)
 
-        response = requests.post(url, json=payload, timeout=self.translation_timeout)
+        response = self._translation_post(url, json=payload, timeout=self.translation_timeout)
         response.raise_for_status()
         data = response.json()
         # Ollama usage fields are eval_count / prompt_eval_count.
@@ -2763,7 +2807,7 @@ class SubtitlePipeline:
         url = f"{base_url.rstrip('/')}/chat/completions"
 
         if stream_cb:
-            with requests.post(
+            with self._translation_post(
                 url,
                 headers=headers,
                 json=payload,
@@ -2820,7 +2864,7 @@ class SubtitlePipeline:
         """
         attempt = 0
         while True:
-            response = requests.post(url, **kwargs)
+            response = self._translation_post(url, **kwargs)
             if response.status_code != 429:
                 return response
 

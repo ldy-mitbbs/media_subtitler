@@ -49,13 +49,12 @@ def _overlap(a, b):
     return min(a["end"], b["end"]) - max(a["start"], b["start"]) > 0.015
 
 
-def restore_arib_background(header, style_format):
-    """Repair FFmpeg/libaribcaption's mismatched default ASS background alpha.
+def transparent_arib_background(header, style_format):
+    """Do not add a default black box behind exported Japanese captions.
 
-    The converter compares events against RGBA black/128, but emits an opaque
-    black default style. ASS alpha is inverted, so that default must be 0x7f.
-    Explicit per-event alpha tags still override this fallback. Only the known
-    Default/BorderStyle=4/opaque-black combination needs correction.
+    Make FFmpeg's default box (or our previous half-transparent fallback)
+    fully transparent. Keep BorderStyle=4 and event overrides so explicitly
+    styled caption backgrounds still render. Other source styles stay intact.
     """
     repaired = []
     for line in header:
@@ -63,8 +62,8 @@ def restore_arib_background(header, style_format):
             fields = line.split(":", 1)[1].strip().split(",", len(style_format) - 1)
             style = dict(zip(style_format, fields))
             if (style.get("name") == "Default" and style.get("borderstyle") == "4"
-                    and re.fullmatch(r"&H0+&?", style.get("backcolour", ""), re.I)):
-                fields[style_format.index("backcolour")] = "&H7F000000"
+                    and re.fullmatch(r"&H(?:0+|7f000000)&?", style.get("backcolour", ""), re.I)):
+                fields[style_format.index("backcolour")] = "&HFF000000"
                 line = "Style: " + ",".join(fields)
         repaired.append(line)
     return repaired
@@ -121,7 +120,7 @@ class AribLayout:
         # ARIB coordinates describe the display canvas, with square pixels.
         # Without LayoutRes, libass inherits the TS storage pixel aspect ratio
         # (e.g. 1440x1080 displayed at 16:9) and stretches glyphs a second time.
-        header = [line for line in restore_arib_background(self.header, self.style_format)
+        header = [line for line in transparent_arib_background(self.header, self.style_format)
                   if not line.strip().lower().startswith(("layoutresx:", "layoutresy:"))]
         info_index = next(i for i, line in enumerate(header) if line.strip().lower() == "[script info]")
         header[info_index + 1:info_index + 1] = [
@@ -133,7 +132,7 @@ class AribLayout:
             if self.stream_index is not None:
                 header.insert(info_index + 2, f"; Source stream index: {self.stream_index}")
         # Insert the new style immediately before [Events]. Source event tags
-        # and PlayRes remain intact; only the faulty default alpha is repaired.
+        # and PlayRes remain intact; the default background is transparent.
         event_index = next(i for i, line in enumerate(header) if line.strip().lower() == "[events]")
         header.insert(event_index, style)
         translated = []

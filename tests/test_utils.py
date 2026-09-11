@@ -592,12 +592,15 @@ class TestTranslationErrorBudget:
             "TRANSLATION_ERROR_BUDGET": 4,
         }
         pipeline = SubtitlePipeline(cfg)
-        pipeline._note_translation_error()
-        pipeline._note_translation_error()
-        pipeline._note_translation_error()
+        error = ValueError("Model returned invalid JSON")
+        pipeline._note_translation_error(error)
+        pipeline._note_translation_error(error)
+        pipeline._note_translation_error(error)
         # 4th error should trigger (count == budget)
-        with pytest.raises(RuntimeError, match="Aborting after 4 translation errors"):
-            pipeline._note_translation_error()
+        with pytest.raises(RuntimeError, match="Aborting after 4 translation errors") as caught:
+            pipeline._note_translation_error(error)
+        assert "Last error: ValueError: Model returned invalid JSON" in str(caught.value)
+        assert caught.value.__cause__ is error
 
     def test_zero_budget_disables_check(self):
         cfg = {
@@ -608,7 +611,7 @@ class TestTranslationErrorBudget:
         }
         pipeline = SubtitlePipeline(cfg)
         for _ in range(100):
-            pipeline._note_translation_error()  # should not raise
+            pipeline._note_translation_error(ValueError("invalid JSON"))  # should not raise
 
 
 # ------------------------------------------------------------------ cancel event
