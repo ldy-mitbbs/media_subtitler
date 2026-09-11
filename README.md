@@ -22,12 +22,53 @@
 - **远程 GPU 支持**：可把 Whisper 语音转文字和 Ollama 翻译跑在另一台局域网电脑（例如 Windows + NVIDIA 游戏 PC）上，本机只负责抽取音频、上传、调度和写字幕。
 - **输出**：
   - `<media>.orig.srt` — 源语言字幕。
+  - `<media>.orig.ass` — ARIB 字幕的原始布局缓存，保留解码后的日文位置、样式和时间。
+  - `<media>.translation.ass` — ARIB 的纯中文/目标语言定位字幕，在 mpv 中作为第二轨叠加。
   - `<media>.bilingual.srt` — 双语字幕（原文 + 译文，逐条显示）。
   - `<media>.bilingual.ass` — 带样式的双语字幕（原文和译文使用不同字体/颜色，并按视频画面比例设置布局）。
 - **可配置目标语言**：通过 `TARGET_LANGUAGE` 环境变量或 `--target-language` 参数切换（默认 `zh`）。
 - **断点续跑**：`--skip-transcription` 可复用已有的 `.orig.srt` 重新翻译。
 - **网页界面与 macOS 桌面应用**：可在浏览器中运行，也可打包成 macOS `.app`。桌面版支持拖放文件、原生窗口、设置持久化和独立 Finder 右键入口。
 - **内置排障样片**：桌面版提供机器生成的日语测试视频，可一键填入路径，用来确认本机语音识别链路是否跑通。
+
+### 日本电视 ARIB 字幕：在每行日文下面加中文
+
+生成的 ASS 同时写入 `LayoutResX/Y`，明确使用 ARIB 显示画布比例；避免 1440×1080 等非方形像素 TS 将中日文字形再次横向拉宽。同时修复 FFmpeg/libaribcaption 导出 ASS 时将默认半透明黑底写成不透明黑底的问题：默认背景使用 ASS alpha `7F`（约 50% 不透明度），逐事件显式透明度仍优先。原始字幕缓存与事件保持不变。
+
+检测到内嵌 `arib_caption` 时，程序使用 FFmpeg 的 **libaribcaption** 解码器
+提取带定位信息的 ASS，而不是先丢弃布局转成 SRT。生成的 `.bilingual.ass`
+保留日文的坐标、颜色、字号及时间，在每个日文正文行下面添加较小的中文译文。
+双行日文会显示为「日文第一行 / 中文第一行 / 日文第二行 / 中文第二行」。
+小号注音保留在原处，不重复翻译；同一行的不同颜色片段一起翻译。
+
+```bash
+.venv/bin/python subtitle_pipeline.py '/path/to/recording.ts' --target-language zh
+```
+
+中文根据原行间距和剩余画面宽度缩小，禁止自动换行，以免盖住下一行日文。
+空间不足或遇到暂不支持的动态排版时会明确报错，不会悄悄挪动原字幕。
+SRT 无法保存这些坐标。macOS 网页/桌面版的「打开视频」会优先用 mpv 加载
+`.translation.ass` 为第二轨，第一轨仍是内嵌 ARIB 日文，保持 mpv 现有的日文显示。
+也可以在仓库根目录手动运行：
+
+```bash
+/Applications/mpv.app/Contents/MacOS/mpv --secondary-sub-ass-override=no \
+  --script="$PWD/contrib/mpv/arib-translation.lua" '/path/to/recording.ts'
+```
+
+脚本读取视频旁边的 `.translation.ass`，按保存的 FFmpeg 流索引选择对应的内嵌
+ARIB 轨。无需修改全局 mpv 字体/样式设置，也无需安装脚本到全局配置目录。
+
+其他播放器可选择 **`.bilingual.ass` 单个字幕轨**，其中已包含日文，不要再同时叠加
+内嵌日文轨。注意 mpv 对内嵌 ARIB 和外挂 ASS 应用的默认样式不同：直接播放
+合并 ASS 可能显示更大的日文或黑色背景。输出会修正上述画布与默认背景透明度，但 ASS 并不等同于原始广播渲染；
+如果要保持 mpv 原来看到的日文效果，请用上述纯译文叠加方式。ASS 转换不能
+恢复 libaribcaption 未识别的 DRCS 自定义字形。
+
+`.orig.ass` 与 `.orig.srt` 一起保存，因此分阶段翻译及 `--skip-transcription`
+重译都能恢复布局。如果手动编辑 SRT 导致两者不一致，需要重新提取。
+旧版仅有 `.orig.srt` 的结果必须先不带 `--skip-transcription` 运行一次，才能获得布局。
+没有 ARIB 定位信息的 SRT / Whisper 字幕继续使用原来的双语排版。
 
 ## 安装
 
@@ -123,16 +164,14 @@ Windows 自检：
 系统依赖：
 
 - `ffmpeg` 必须在 `PATH` 中（本地/远程 ASR 和内嵌字幕提取都需要）。
-- 如果要直接复用合法来源的 TS 文件里的 `[字]` 字幕，`ffmpeg` 还需要支持
-  `arib_caption` 解码。Homebrew 核心的 `ffmpeg` 没有这个解码器，macOS 上可以用
-  `homebrew-ffmpeg` tap 源码编译一份（约 1~2 分钟）：
+- 如果要直接复用 TS 文件里的 `[字]` 字幕并保留布局，FFmpeg 必须包含
+  **libaribcaption**。先检查现有构建，已经支持时无需替换：
 
   ```bash
-  brew tap homebrew-ffmpeg/ffmpeg
-  brew uninstall --ignore-dependencies ffmpeg   # 两个 tap 的 ffmpeg 不能共存
-  brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-libaribcaption
-  ffmpeg -hide_banner -decoders | grep arib     # 应出现 libaribcaption
+  ffmpeg -hide_banner -decoders | grep libaribcaption
   ```
+
+  如果没有结果，请安装启用 `--enable-libaribcaption` 的 FFmpeg 构建，再确认解码器列表。
 
   Linux/CI 可直接用 BtbN 的静态构建（见 `.github/workflows/ci.yml`）。
 - 使用 `whisper.cpp` 时：安装 `whisper-cli`，并将 ggml 模型放到 `models/ggml-<MODEL>.bin`、`~/.cache/media_subtitler/models/ggml-<MODEL>.bin`，或在设置里填写 `WHISPER_CPP_MODEL_PATH`。

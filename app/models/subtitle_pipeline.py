@@ -789,6 +789,9 @@ class SubtitlePipeline:
             raise FileNotFoundError(f"Media file not found: {media_path}")
         self._active_cancel_event = cancel_event
 
+        # Per-run layout state; never reuse it for another media file.
+        self._source_ass_layout = None
+
         target_lang = (
             (target_language or "").strip().lower() or self.target_language
         )
@@ -813,10 +816,18 @@ class SubtitlePipeline:
                 progress_cb(55, f"Loading existing transcription: {original_srt.name}")
 
             segments = read_srt(original_srt)
-            segments = self._repair_mojibake_segments(segments)
-            segments = _dedupe_repeated_segments(segments)
-            segments = _collapse_degenerate_repeats(segments)
-            source_language = source_language_hint or "unknown"
+            from media_subtitler.ass_layout import load_cached_layout
+
+            self._source_ass_layout = load_cached_layout(
+                media_path.with_suffix(".orig.ass"), segments
+            )
+            if self._source_ass_layout:
+                segments = self._source_ass_layout.segments()
+            else:
+                segments = self._repair_mojibake_segments(segments)
+                segments = _dedupe_repeated_segments(segments)
+                segments = _collapse_degenerate_repeats(segments)
+            source_language = source_language_hint or ("ja" if self._source_ass_layout else "unknown")
             if not segments:
                 raise RuntimeError(f"No subtitle segments found in: {original_srt}")
         else:
@@ -849,9 +860,10 @@ class SubtitlePipeline:
                             f"falling back to transcription ({exc})",
                         )
                 else:
-                    segments = self._repair_mojibake_segments(segments)
-                    segments = _dedupe_repeated_segments(segments)
-                    segments = _collapse_degenerate_repeats(segments)
+                    if not self._source_ass_layout:
+                        segments = self._repair_mojibake_segments(segments)
+                        segments = _dedupe_repeated_segments(segments)
+                        segments = _collapse_degenerate_repeats(segments)
                     if progress_cb:
                         progress_cb(
                             55,
@@ -882,8 +894,10 @@ class SubtitlePipeline:
                 "target_language": target_lang,
                 "segment_count": len(segments),
                 "original_srt": str(original_srt),
+                "original_ass": str(media_path.with_suffix(".orig.ass")) if self._source_ass_layout else None,
                 "bilingual_srt": None,
                 "bilingual_ass": None,
+                "translation_ass": None,
                 "translation_model": None,
                 "translation_backend": None,
                 "asr_model": self.asr_model_name,
@@ -912,20 +926,30 @@ class SubtitlePipeline:
         self._active_cancel_event = None
         bilingual_srt = media_path.with_suffix(".bilingual.srt")
         bilingual_ass = media_path.with_suffix(".bilingual.ass")
+        translation_ass = None
+        if self._source_ass_layout:
+            self._source_ass_layout.write(bilingual_segments, bilingual_ass, ass_translation_font())
+            translation_ass = media_path.with_suffix(".translation.ass")
+            self._source_ass_layout.write(
+                bilingual_segments, translation_ass, ass_translation_font(), include_source=False
+            )
+        else:
+            write_bilingual_ass(
+                bilingual_segments,
+                bilingual_ass,
+                play_res=detect_video_play_res(media_path),
+            )
         write_srt(bilingual_segments, bilingual_srt)
-        write_bilingual_ass(
-            bilingual_segments,
-            bilingual_ass,
-            play_res=detect_video_play_res(media_path),
-        )
 
         result = {
             "source_language": source_language,
             "target_language": target_lang,
             "segment_count": len(segments),
             "original_srt": str(original_srt),
+            "original_ass": str(media_path.with_suffix(".orig.ass")) if self._source_ass_layout else None,
             "bilingual_srt": str(bilingual_srt),
             "bilingual_ass": str(bilingual_ass),
+            "translation_ass": str(translation_ass) if translation_ass else None,
             "translation_model": self.translation_model,
             "translation_backend": self.translation_backend,
             "asr_model": self.asr_model_name,
@@ -1362,13 +1386,10 @@ class SubtitlePipeline:
             raise RuntimeError("ffmpeg is required to extract embedded subtitles")
 
         codec_name = str(subtitle_stream.get("codec") or "").strip().lower()
-        if codec_name == "arib_caption" and not self._ffmpeg_has_arib_caption_decoder():
-            raise RuntimeError(
-                "Embedded ARIB subtitles were found, but this ffmpeg build cannot decode "
-                "arib_caption. Install an ffmpeg build with arib_caption/libaribcaption "
-                "support, then run translation again."
+        if codec_name == "arib_caption":
+            return self._extract_arib_layout(
+                media_path, subtitle_stream, output_srt, progress_cb, language_hint
             )
-
         output_srt = Path(output_srt)
         temp_srt = output_srt.with_suffix(".embedded.tmp.srt")
         try:
@@ -1437,6 +1458,48 @@ class SubtitlePipeline:
                     if attempt == 2:
                         break
                     time.sleep(0.5)
+
+    def _extract_arib_layout(self, media_path, subtitle_stream, output_srt,
+                             progress_cb=None, language_hint=None):
+        from media_subtitler.ass_layout import CACHE_MARKER, read_arib_ass
+
+        if not self._ffmpeg_has_decoder("libaribcaption"):
+            raise RuntimeError(
+                "This ffmpeg build cannot decode arib_caption with preserved layout. "
+                "Install FFmpeg with libaribcaption support, then run translation again."
+            )
+        if progress_cb:
+            progress_cb(15, "Extracting ARIB captions with their original positions and styles")
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-arib-") as temp_dir:
+            temp_ass = Path(temp_dir) / "captions.ass"
+            cmd = [
+                _find_media_tool("ffmpeg"), "-y", "-nostdin", "-hide_banner",
+                "-loglevel", "error", "-fix_sub_duration", "-c:s", "libaribcaption",
+                "-analyzeduration", "200M", "-probesize", "200M", "-i", str(media_path),
+                "-map", f"0:{subtitle_stream['index']}", "-c:s", "ass",
+                "-progress", "pipe:1", str(temp_ass),
+            ]
+            returncode, output = self._run_ffmpeg_command(
+                cmd, label="Extracting positioned ARIB subtitles", progress_cb=progress_cb,
+                timeout=self.embedded_subtitle_timeout,
+                idle_timeout=self.embedded_subtitle_idle_timeout,
+                cancel_event=getattr(self, "_active_cancel_event", None),
+            )
+            if returncode != 0:
+                raise RuntimeError(f"ffmpeg subtitle extraction failed: {(output or '')[:500]}")
+            layout = read_arib_ass(temp_ass)
+            layout.stream_index = int(subtitle_stream["index"])
+            segments = layout.segments()
+            original_ass = Path(output_srt).with_suffix(".ass")
+            document = temp_ass.read_text(encoding="utf-8-sig")
+            document = document.replace(
+                "[Script Info]", "[Script Info]\n" + CACHE_MARKER
+                + f"\n; Source stream index: {layout.stream_index}", 1
+            )
+            original_ass.write_text(document, encoding="utf-8-sig")
+            write_srt(segments, output_srt)
+        self._source_ass_layout = layout
+        return segments, language_hint or subtitle_stream.get("language") or "ja"
 
     @staticmethod
     def _ffmpeg_has_decoder(codec_name):
@@ -2285,6 +2348,7 @@ class SubtitlePipeline:
                         "source_text": src,
                         "target_text": target_text,
                         "text": f"{src}\n{target_text}",
+                        **({"ass_row": original["ass_row"]} if "ass_row" in original else {}),
                     }
                 )
                 # Emit a compact preview line; truncate long subtitles.

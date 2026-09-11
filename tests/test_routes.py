@@ -469,6 +469,27 @@ class TestServeMediaFile:
 
 
 class TestOpenJobMedia:
+    def test_open_arib_uses_overlay_script_and_standalone_mpv_app(self, tmp_path, mocker, monkeypatch):
+        from app.routes import _open_media_with_player
+
+        media = tmp_path / "test.ts"
+        media.write_bytes(b"fake")
+        media.with_suffix(".translation.ass").write_text(
+            "[Script Info]\n; Media Subtitler ARIB translation v1\n; Source stream index: 2\n"
+        )
+        monkeypatch.setattr("sys.platform", "darwin")
+        mocker.patch("shutil.which", return_value=None)
+        original = Path.is_file
+        mocker.patch.object(Path, "is_file", lambda p: str(p) == "/Applications/mpv.app/Contents/MacOS/mpv" or original(p))
+        spawn = mocker.patch("subprocess.Popen")
+
+        _open_media_with_player(media, media.with_suffix(".bilingual.ass"))
+
+        cmd = spawn.call_args.args[0]
+        assert cmd[0] == "/Applications/mpv.app/Contents/MacOS/mpv"
+        assert any(arg.endswith("contrib/mpv/arib-translation.lua") for arg in cmd)
+        assert not any(arg.startswith("--sub-file=") for arg in cmd)
+
     def test_open_existing_media_uses_sidecar_bilingual_srt(
         self, client, tmp_path, mocker, monkeypatch
     ):

@@ -22,6 +22,8 @@ pyinstaller \
   --add-data "app/templates:app/templates" \
   --add-data "app/static:app/static" \
   --add-data "scripts:scripts" \
+  --add-data "contrib/mpv:contrib/mpv" \
+  --hidden-import "media_subtitler.ass_layout" \
   --hidden-import "encodings.utf_8_sig" \
   --hidden-import "app.routes" \
   --hidden-import "app.models.subtitle_pipeline" \

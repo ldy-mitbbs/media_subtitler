@@ -349,9 +349,22 @@ def _open_media_with_player(media_path, subtitle_path=None):
     import sys
 
     mpv_path = shutil.which("mpv")
+    if sys.platform == "darwin" and not mpv_path:
+        installed_app = Path("/Applications/mpv.app/Contents/MacOS/mpv")
+        if installed_app.is_file():
+            mpv_path = str(installed_app)
     if sys.platform == "darwin" and mpv_path:
         cmd = [mpv_path, "--sub-auto=no"]
-        if subtitle_path:
+        overlay = media_path.with_suffix(".translation.ass")
+        overlay_script = Path(__file__).resolve().parents[1] / "contrib/mpv/arib-translation.lua"
+        use_overlay = (
+            overlay.is_file() and overlay_script.is_file()
+            and "; Media Subtitler ARIB translation v1" in overlay.read_text(encoding="utf-8-sig")[:8192]
+        )
+        if use_overlay:
+            cmd.append("--secondary-sub-ass-override=no")
+            cmd.append(f"--script={overlay_script}")
+        elif subtitle_path:
             cmd.append(f"--sub-file={subtitle_path}")
         cmd.append(str(media_path))
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -970,12 +983,17 @@ def job_download(job_id, output_kind):
         "original": "original_srt",
         "bilingual": "bilingual_srt",
         "styled": "bilingual_ass",
+        "overlay": "translation_ass",
+        "original-styled": "original_ass",
     }
     output_key = key_map.get(output_kind)
     if not output_key:
         return jsonify({"success": False, "message": "Invalid output kind"}), 400
 
-    output_path = Path(job["result"].get(output_key, ""))
+    output_value = job["result"].get(output_key)
+    if not output_value:
+        return jsonify({"success": False, "message": "File not found"}), 404
+    output_path = Path(output_value)
     if not output_path.exists():
         return jsonify({"success": False, "message": "File not found"}), 404
 

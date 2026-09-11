@@ -208,6 +208,8 @@ def main():
         return 1
 
     original_srt = Path(result["original_srt"])
+    original_ass = Path(result["original_ass"]) if result.get("original_ass") else None
+    translation_ass = Path(result["translation_ass"]) if result.get("translation_ass") else None
     bilingual_srt = Path(result["bilingual_srt"])
     bilingual_ass = Path(result["bilingual_ass"])
 
@@ -220,6 +222,14 @@ def main():
         shutil.copy2(original_srt, target_original)
         shutil.copy2(bilingual_srt, target_bilingual)
         shutil.copy2(bilingual_ass, target_bilingual_ass)
+        if original_ass:
+            target_original_ass = out_dir / original_ass.name
+            shutil.copy2(original_ass, target_original_ass)
+            original_ass = target_original_ass
+        if translation_ass:
+            target_translation_ass = out_dir / translation_ass.name
+            shutil.copy2(translation_ass, target_translation_ass)
+            translation_ass = target_translation_ass
         original_srt = target_original
         bilingual_srt = target_bilingual
         bilingual_ass = target_bilingual_ass
@@ -227,8 +237,12 @@ def main():
     print(f"Source language: {result['source_language']}")
     print(f"Segments: {result['segment_count']}")
     print(f"Original SRT: {original_srt}")
+    if original_ass:
+        print(f"Original positioned ASS: {original_ass}")
     print(f"Bilingual SRT: {bilingual_srt}")
     print(f"Styled bilingual ASS: {bilingual_ass}")
+    if translation_ass:
+        print(f"Chinese/target overlay ASS (use with embedded source captions): {translation_ass}")
     return 0
 
 

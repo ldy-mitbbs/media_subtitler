@@ -456,7 +456,7 @@ def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
     mocker.patch("subprocess.run", side_effect=fake_run)
     def fake_ffmpeg(cmd, **kwargs):  # noqa: ARG001
         Path(cmd[-1]).write_text(
-            "1\n00:00:00,000 --> 00:00:01,000\nこんにちは\n\n",
+            (Path(__file__).parent / "fixtures/arib-positioned.ass").read_text(),
             encoding="utf-8",
         )
         return 0, ""
@@ -465,8 +465,8 @@ def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
     transcribe_mock = mocker.patch.object(pipeline, "_transcribe")
     mocker.patch.object(
         pipeline,
-        "_translate_segments",
-        return_value=[{"start": 0.0, "end": 1.0, "text": "こんにちは\n你好"}],
+        "_translate_with_recovery",
+        return_value=[{"target": "你好"}],
     )
 
     result = pipeline.process(media_path)
@@ -475,6 +475,9 @@ def test_arib_caption_accepts_libaribcaption_decoder(tmp_path, mocker):
     assert result["source_language"] == "ja"
     assert result["segment_count"] == 1
 
+
+    assert Path(result["original_ass"]).exists()
+    assert "AribTranslation" in Path(result["bilingual_ass"]).read_text(encoding="utf-8-sig")
 
 def test_process_stop_after_transcription_skips_translation(tmp_path, mocker):
     media_path = tmp_path / "sample01.mp4"
