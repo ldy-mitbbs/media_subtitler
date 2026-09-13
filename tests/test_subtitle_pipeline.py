@@ -438,6 +438,105 @@ def test_process_reuses_translation_session_and_always_closes_it(tmp_path, mocke
     assert pipeline._active_cancel_event is None
 
 
+@pytest.mark.parametrize("hd_pid", ["0x130", "0x240"])
+def test_broadcast_subtitles_follow_hd_program_before_language(hd_pid, mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffprobe")
+    run = mocker.patch("subprocess.run", return_value=mocker.Mock(
+        returncode=0, stdout=json.dumps({
+            "streams": [
+                {"index": 0, "codec_type": "video", "width": 320, "height": 180},
+                {"index": 2, "codec_name": "arib_caption", "id": "0x887",
+                 "tags": {"language": "ja"}},
+                {"index": 8, "codec_type": "video", "width": 1440, "height": 1080},
+                {"index": 9, "codec_name": "arib_caption", "id": hd_pid},
+            ],
+            "programs": [
+                {"program_id": 1, "streams": [{"index": 0}, {"index": 2}]},
+                {"program_id": 2, "streams": [{"index": 8}, {"index": 9}]},
+            ],
+        }),
+    ))
+    selected = pipeline._find_embedded_subtitle_stream("broadcast.ts", language_hint="ja")
+    assert selected["index"] == 9
+    assert selected["stream_id"] == hd_pid
+    assert "1440x1080" in selected["label"]
+    assert run.call_args.kwargs["timeout"] == 30
+
+
+def test_main_program_without_captions_does_not_borrow_mobile_captions(mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffprobe")
+    mocker.patch("subprocess.run", return_value=mocker.Mock(
+        returncode=0, stdout=json.dumps({
+            "streams": [
+                {"index": 0, "codec_type": "video", "width": 320, "height": 180},
+                {"index": 2, "codec_name": "arib_caption"},
+                {"index": 8, "codec_type": "video", "width": 1920, "height": 1080},
+            ],
+            "programs": [
+                {"streams": [{"index": 0}, {"index": 2}]},
+                {"streams": [{"index": 8}]},
+            ],
+        }),
+    ))
+    assert pipeline._find_embedded_subtitle_stream("broadcast.ts") is None
+
+
+def test_non_broadcast_language_selection_still_works(mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffprobe")
+    mocker.patch("subprocess.run", return_value=mocker.Mock(
+        returncode=0, stdout=json.dumps({"streams": [
+            {"index": 0, "codec_type": "video", "width": 1920, "height": 1080},
+            {"index": 2, "codec_name": "subrip", "tags": {"language": "en"}},
+            {"index": 3, "codec_name": "subrip", "tags": {"language": "ja"}},
+        ]}),
+    ))
+    assert pipeline._find_embedded_subtitle_stream("movie.mkv", "ja")["index"] == 3
+
+
+def test_arib_extraction_maps_stable_pid_even_if_probe_indices_change(tmp_path, mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_ffmpeg_has_decoder", return_value=True)
+    commands = []
+
+    def extract(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_text(
+            (Path(__file__).parent / "fixtures/arib-positioned.ass").read_text(),
+            encoding="utf-8",
+        )
+        return 0, ""
+
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=extract)
+    segments, _ = pipeline._extract_arib_layout(
+        tmp_path / "broadcast.ts", {"index": 2, "stream_id": "0x240"},
+        tmp_path / "broadcast.orig.srt",
+    )
+    assert segments
+    cmd = commands[0]
+    assert cmd[cmd.index("-map") + 1] == "0:i:0x240"
+
+
+def test_empty_arib_track_keeps_reason_instead_of_starting_whisper(tmp_path, mocker):
+    media = tmp_path / "empty.ts"
+    media.write_bytes(b"fake")
+    pipeline = _pipeline()
+    mocker.patch.object(pipeline, "_find_embedded_subtitle_stream", return_value={
+        "index": 9, "codec": "arib_caption", "stream_id": "0x130",
+        "label": "ARIB / PID 0x130 / main video 1440x1080",
+    })
+    mocker.patch.object(pipeline, "_extract_embedded_subtitle", side_effect=ValueError(
+        "No positioned ARIB subtitle rows found",
+    ))
+    transcribe = mocker.patch.object(pipeline, "_transcribe")
+    with pytest.raises(RuntimeError, match="PID 0x130.*No positioned ARIB subtitle rows found"):
+        pipeline.process(media)
+    transcribe.assert_not_called()
+
+
 def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
     media_path = tmp_path / "sample01.mkv"
     media_path.write_bytes(b"fake")

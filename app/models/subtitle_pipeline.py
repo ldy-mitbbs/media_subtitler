@@ -847,7 +847,10 @@ class SubtitlePipeline:
                     )
                 except Exception as exc:
                     if not self.fallback_on_embedded_subtitle_error:
-                        raise
+                        label = embedded_subtitle.get("label") or "embedded subtitle"
+                        raise RuntimeError(
+                            f"Embedded subtitle extraction failed ({label}): {exc}"
+                        ) from exc
                     segments = []
                     source_language = None
                     if progress_cb:
@@ -1307,15 +1310,24 @@ class SubtitlePipeline:
             ffprobe_path,
             "-v",
             "error",
-            "-select_streams",
-            "s",
+            "-probesize",
+            "20M",
+            "-analyzeduration",
+            "20M",
             "-show_entries",
-            "stream=index,codec_name:stream_tags=language,title",
+            "program=program_id:program_stream=index:"
+            "stream=index,id,codec_name,codec_type,width,height:"
+            "stream_tags=language,title:stream_disposition=default,attached_pic",
             "-of",
             "json",
             str(media_path),
         ]
-        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        try:
+            completed = subprocess.run(
+                cmd, capture_output=True, text=True, check=False, timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Subtitle stream probing timed out after 30s") from exc
         if completed.returncode != 0:
             return None
 
@@ -1324,8 +1336,26 @@ class SubtitlePipeline:
         except json.JSONDecodeError:
             return None
 
+        raw_streams = payload.get("streams", [])
+        # Broadcast TS can contain both an HD programme and a mobile simulcast.
+        # Subtitle order is not programme preference: mobile often comes first.
+        videos = [s for s in raw_streams if s.get("codec_type") == "video"
+                  and not (s.get("disposition") or {}).get("attached_pic")]
+        main_video = max(videos, key=lambda s: (
+            int(s.get("width") or 0) * int(s.get("height") or 0),
+            int((s.get("disposition") or {}).get("default") or 0),
+        ), default=None)
+        main_indices = set()
+        if main_video is not None:
+            for program in payload.get("programs", []):
+                indices = {s.get("index") for s in program.get("streams", [])}
+                if main_video.get("index") in indices:
+                    main_indices.update(indices)
+
         streams = []
-        for stream in payload.get("streams", []):
+        for stream in raw_streams:
+            if main_indices and stream.get("index") not in main_indices:
+                continue
             codec_name = str(stream.get("codec_name") or "").strip().lower()
             if codec_name not in TEXT_SUBTITLE_CODECS:
                 continue
@@ -1335,15 +1365,28 @@ class SubtitlePipeline:
             index = stream.get("index")
             if index is None:
                 continue
-            streams.append(
-                {
+            selected = {
                     "index": int(index),
                     "codec": codec_name,
                     "language": language,
                     "title": title,
                     "label": self._format_subtitle_stream_label(index, codec_name, language, title),
-                }
-            )
+            }
+            if codec_name == "arib_caption" and stream.get("id") is not None:
+                # A TS PID is stable even when probe sizes discover streams in
+                # a different order; a numeric stream index is not.
+                try:
+                    selected["stream_id"] = hex(int(str(stream["id"]), 0))
+                except ValueError:
+                    pass
+                else:
+                    selected["label"] += f" / PID {selected['stream_id']}"
+            if main_indices and main_video is not None:
+                selected["label"] += (
+                    f" / main video {main_video.get('width', 0)}x"
+                    f"{main_video.get('height', 0)}"
+                )
+            streams.append(selected)
 
         if not streams:
             return None
@@ -1474,11 +1517,15 @@ class SubtitlePipeline:
             progress_cb(15, "Extracting ARIB captions with their original positions and styles")
         with tempfile.TemporaryDirectory(prefix="media-subtitler-arib-") as temp_dir:
             temp_ass = Path(temp_dir) / "captions.ass"
+            stream_map = (
+                f"0:i:{subtitle_stream['stream_id']}"
+                if subtitle_stream.get("stream_id") else f"0:{subtitle_stream['index']}"
+            )
             cmd = [
                 _find_media_tool("ffmpeg"), "-y", "-nostdin", "-hide_banner",
                 "-loglevel", "error", "-fix_sub_duration", "-c:s", "libaribcaption",
                 "-analyzeduration", "200M", "-probesize", "200M", "-i", str(media_path),
-                "-map", f"0:{subtitle_stream['index']}", "-c:s", "ass",
+                "-map", stream_map, "-c:s", "ass",
                 "-progress", "pipe:1", str(temp_ass),
             ]
             returncode, output = self._run_ffmpeg_command(
