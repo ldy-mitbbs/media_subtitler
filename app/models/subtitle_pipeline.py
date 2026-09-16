@@ -509,6 +509,18 @@ def write_bilingual_ass(segments, output_path, play_res=None):
     play_res_x, play_res_y = _normalize_ass_play_res(play_res)
     source_font = ass_source_font()
     translation_font = ass_translation_font()
+
+    # Font size and margins below are tuned against DEFAULT_ASS_PLAY_RES
+    # (1920x1080). Scale them to the actual PlayRes so a low-resolution
+    # source (e.g. a 320x240 clip) doesn't end up with subtitles sized as if
+    # the frame were 1080p tall -- at PlayResY=240 a fixed 50pt font is ~21%
+    # of the frame height instead of the intended ~4.6%.
+    scale = play_res_y / DEFAULT_ASS_PLAY_RES[1]
+    source_font_size = max(1, round(ASS_SOURCE_FONT_SIZE * scale))
+    translation_font_size = max(1, round(ASS_TRANSLATION_FONT_SIZE * scale))
+    horizontal_margin = max(0, round(ASS_HORIZONTAL_MARGIN * scale))
+    vertical_margin = max(0, round(ASS_VERTICAL_MARGIN * scale))
+
     header = f"""[Script Info]
 ScriptType: v4.00+
 WrapStyle: 0
@@ -520,8 +532,8 @@ LayoutResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Source,{source_font},{ASS_SOURCE_FONT_SIZE},&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
-Style: Translation,{translation_font},{ASS_TRANSLATION_FONT_SIZE},&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},1
+Style: Source,{source_font},{source_font_size},&H00F7DFA6,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{horizontal_margin},{horizontal_margin},{vertical_margin},1
+Style: Translation,{translation_font},{translation_font_size},&H00FFFFFF,&H000000FF,&H00131313,&H99000000,0,0,0,0,100,100,0,0,1,2,0,2,{horizontal_margin},{horizontal_margin},{vertical_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -546,18 +558,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not source:
                 continue
             source_text = r"{\rSource}" + escape_ass_text(
-                _wrap_ass_text(source, play_res_x, ASS_SOURCE_FONT_SIZE)
+                _wrap_ass_text(source, play_res_x, source_font_size)
             )
             if translation:
                 translation_text = r"{\rTranslation}" + escape_ass_text(
-                    _wrap_ass_text(translation, play_res_x, ASS_TRANSLATION_FONT_SIZE)
+                    _wrap_ass_text(translation, play_res_x, translation_font_size)
                 )
                 text = source_text + r"\N" + translation_text
             else:
                 text = source_text
             f.write(
                 f"Dialogue: 0,{start},{end},Source,,"
-                f"{ASS_HORIZONTAL_MARGIN},{ASS_HORIZONTAL_MARGIN},{ASS_VERTICAL_MARGIN},,"
+                f"{horizontal_margin},{horizontal_margin},{vertical_margin},,"
                 f"{text}\n"
             )
 

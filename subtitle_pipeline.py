@@ -178,7 +178,14 @@ def main():
 
     pipeline = SubtitlePipeline(cfg)
 
+    last_progress = 0
+
     def progress_cb(progress, message):
+        nonlocal last_progress
+        if progress is None:
+            progress = last_progress
+        else:
+            last_progress = progress
         print(f"\r[{progress:3d}%] {message}", end="", flush=True)
 
     def translation_stream_cb(text):

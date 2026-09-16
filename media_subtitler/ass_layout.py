@@ -1,8 +1,9 @@
 """Preserve libaribcaption ASS events and add a translation beneath each row.
 
 This deliberately handles static, positioned ARIB output, not arbitrary ASS
-typesetting. Unsupported geometry or insufficient space raises a clear error
-instead of silently moving or restyling the Japanese captions.
+typesetting. Playback uses a transparent background and mpv's default source
+font size. Unsupported geometry or insufficient space raises a clear error
+instead of silently moving the Japanese captions.
 """
 
 import re
@@ -69,6 +70,37 @@ def transparent_arib_background(header, style_format):
     return repaired
 
 
+def _arib_source_font_size(style, height):
+    if (style.get("name") == "Default" and style.get("fontname") == "sans-serif"
+            and style.get("borderstyle") == "4"
+            and re.fullmatch(r"36(?:\.0+)?", style.get("fontsize", ""))):
+        return 38 * height / 720
+    return float(style.get("fontsize", 36))
+
+
+def arib_playback_header(header, style_format, height):
+    """Match mpv's default embedded-caption size without resizing translations.
+
+    mpv replaces the converted ARIB default style with its subtitle font size,
+    expressed at a 720-line reference height (38 by default). FFmpeg exports
+    36 in the 540-line ARIB canvas, making an external ASS about 26% larger.
+    Only replace that known decoder default; preserve custom styles and every
+    explicit event font override, including ruby. The raw cache stays intact.
+    See mpv sub/ass_mp.c: mp_ass_set_style().
+    """
+    result = []
+    for line in transparent_arib_background(header, style_format):
+        if line.strip().startswith("Style:"):
+            fields = line.split(":", 1)[1].strip().split(",", len(style_format) - 1)
+            style = dict(zip(style_format, fields))
+            size = _arib_source_font_size(style, height)
+            if size != float(style.get("fontsize", 36)):
+                fields[style_format.index("fontsize")] = f"{size:g}"
+                line = "Style: " + ",".join(fields)
+        result.append(line)
+    return result
+
+
 @dataclass
 class AribLayout:
     header: list
@@ -110,7 +142,7 @@ class AribLayout:
         while name in self.style_names:
             name += "_"
         values = {
-            "name": name, "fontname": font.replace(",", " "), "fontsize": "18",
+            "name": name, "fontname": font.replace(",", " "), "fontsize": f"{self.height * 24 / 540:g}",
             "primarycolour": "&H00FFFFFF", "secondarycolour": "&H00FFFFFF",
             "outlinecolour": "&H00000000", "backcolour": "&H00000000",
             "scalex": "100", "scaley": "100", "borderstyle": "1",
@@ -120,7 +152,7 @@ class AribLayout:
         # ARIB coordinates describe the display canvas, with square pixels.
         # Without LayoutRes, libass inherits the TS storage pixel aspect ratio
         # (e.g. 1440x1080 displayed at 16:9) and stretches glyphs a second time.
-        header = [line for line in transparent_arib_background(self.header, self.style_format)
+        header = [line for line in arib_playback_header(self.header, self.style_format, self.height)
                   if not line.strip().lower().startswith(("layoutresx:", "layoutresy:"))]
         info_index = next(i for i, line in enumerate(header) if line.strip().lower() == "[script info]")
         header[info_index + 1:info_index + 1] = [
@@ -132,7 +164,7 @@ class AribLayout:
             if self.stream_index is not None:
                 header.insert(info_index + 2, f"; Source stream index: {self.stream_index}")
         # Insert the new style immediately before [Events]. Source event tags
-        # and PlayRes remain intact; the default background is transparent.
+        # and PlayRes remain intact; only default playback styling is adjusted.
         event_index = next(i for i, line in enumerate(header) if line.strip().lower() == "[events]")
         header.insert(event_index, style)
         translated = []
@@ -142,18 +174,22 @@ class AribLayout:
             if not target or target == row["text"]:
                 continue
             target = _escape(target)
-            gap = max(2.0, self.height / 135)
+            gap = max(2.0, self.height / 180)
             x = max(2.0, row["x"])
-            y = row["y"] + row["height"] + gap
+            # Use the displayed Japanese height, not FFmpeg's larger raw
+            # default, so a readable translation fits between Japanese rows.
+            source_height = row["display_height"]
+            y = row["y"] + source_height + gap
             bottom = self.height - gap
             for box in self.boxes:
                 if not _overlap(row, box):
                     continue
-                if box["y"] >= row["y"] + row["height"] - 0.1:
+                if box["y"] >= row["y"] + source_height - 0.1:
                     bottom = min(bottom, box["y"] - 2)
             room = bottom - y - 2  # reserve the translation outline
             width = self.width - x - gap
-            size = min(row["height"] * 4 / 9, room, width / max(1, _units(target) + 2))
+            size = min(source_height * 0.85, self.height * 24 / 540,
+                       room, width / max(1, _units(target) + 2))
             minimum = min(row["height"] * 0.3, self.height / 54)
             if size < minimum or width <= 0:
                 raise LayoutError(
@@ -227,6 +263,8 @@ def read_arib_ass(path):
             sizes = [float(style.get("fontsize", 36))] + [float(n) for n in re.findall(r"\\fs(" + _NUMBER + ")", text)]
             # Leading overrides replace the style size (e.g. 18-point ruby).
             size = sizes[-1] if len(sizes) == 2 else max(sizes)
+            display_sizes = [_arib_source_font_size(style, height)] + sizes[1:]
+            display_size = display_sizes[-1] if len(display_sizes) == 2 else max(display_sizes)
             sy = re.findall(r"\\fscy(" + _NUMBER + ")", text)
             sx = re.findall(r"\\fscx(" + _NUMBER + ")", text)
             spacing = re.findall(r"\\fsp(" + _NUMBER + ")", text)
@@ -240,6 +278,7 @@ def read_arib_ass(path):
             boxes.append({
                 "start": start, "end": end, "start_ass": event["start"], "end_ass": event["end"],
                 "x": x, "y": y, "height": glyph_height,
+                "display_height": display_size * float(sy[-1] if sy else style.get("scaley", 100)) / 100,
                 "width": _units(plain) * glyph_width + len(plain) * advance,
                 "text": plain, "layer": int(event.get("layer", 0)),
             })
@@ -270,6 +309,7 @@ def read_arib_ass(path):
             text += space + part["text"]
         row["text"] = text
         row["height"] = max(p["height"] for p in parts)
+        row["display_height"] = max(p["display_height"] for p in parts)
         rows.append(row)
     layout = AribLayout(header, events, event_format, style_format, set(styles), rows, boxes, width, height)
     stream_index = re.search(r"^; Source stream index: (\d+)$", "\n".join(lines), re.MULTILINE)

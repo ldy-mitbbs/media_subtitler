@@ -14,9 +14,9 @@ def event(text, x=118, y=389, start="0:00:01.00", end="0:00:04.00", tags=""):
     return f"Dialogue: 0,{start},{end},Default,,0,0,0,," + rf"{{\an7}}{{\pos({x},{y})}}{{\fsp4}}{{\bord3}}" + tags + text
 
 
-def layout_for(tmp_path, events):
+def layout_for(tmp_path, events, height=540):
     p = tmp_path / "test.orig.ass"
-    p.write_text(HEADER + "\n".join(events) + "\n")
+    p.write_text(HEADER.replace("PlayResY: 540", f"PlayResY: {height}") + "\n".join(events) + "\n")
     return read_arib_ass(p)
 
 
@@ -32,16 +32,18 @@ def test_preserves_source_events_and_places_chinese_between_rows(tmp_path):
     text = out.read_text(encoding="utf-8-sig")
     for source in originals:
         assert source in text
-    assert "PlayResX: 960" in text and "Style: Default,sans-serif,36," in text
-    assert r"\pos(118,429)" in text
-    assert r"\pos(158,489)" in text
+    assert "PlayResX: 960" in text and "Style: Default,sans-serif,28.5," in text
+    assert r"\pos(118,420.5)" in text
+    assert r"\pos(158,480.5)" in text
     chinese = [l for l in text.splitlines() if l.startswith("Dialogue: 1,")]
     assert len(chinese) == 2
     assert all(
         "0:00:01.00,0:00:04.00,AribTranslation" in l for l in chinese
     )
     size = float(re.search(r"\\fs([\d.]+)", chinese[0]).group(1))
-    assert 429 + size + 1 < 449
+    assert size == 24
+    assert 389 + 28.5 < 420.5
+    assert 420.5 + size + 1 < 449
 
 
 def test_ruby_preserved_without_duplicate_translation_and_color_runs_joined(tmp_path):
@@ -149,7 +151,7 @@ def test_arib_display_canvas_prevents_anamorphic_video_stretch(tmp_path, include
     assert "LayoutResX: 960\nLayoutResY: 540" in text
     assert "PlayResX: 960" in text and "PlayResY: 540" in text
     assert layout.header == original_header
-    assert r"\pos(118,429)" in text
+    assert r"\pos(118,420.5)" in text
     assert (layout.events[0] in text) == include_source
 
 
@@ -187,3 +189,38 @@ def test_transparent_background_preserves_other_style_settings(name, backcolour,
     fmt = ["name", "backcolour", "borderstyle"]
     header = [f"Style: {name},{backcolour},{borderstyle}"]
     assert transparent_arib_background(header, fmt) == header
+
+
+@pytest.mark.parametrize("height,expected_size", [(540, 28.5), (480, 38 * 480 / 720)])
+def test_source_font_matches_embedded_mpv_size_without_changing_events(tmp_path, height, expected_size):
+    originals = [event("なまえ", y=359, tags=r"{\fs18}"), event("名前")]
+    layout = layout_for(tmp_path, originals, height=height)
+    original_header = list(layout.header)
+    out = tmp_path / "bilingual.ass"
+    layout.write(translations(layout, ["名字"]), out, "PingFang SC")
+    lines = out.read_text(encoding="utf-8-sig").splitlines()
+    source = next(line for line in lines if line.startswith("Style: Default,"))
+    assert float(source.split(",")[2]) == pytest.approx(expected_size, abs=0.0001)
+    assert source.split(",")[6] == "&HFF000000"
+    assert all(line in lines for line in originals)
+    assert layout.header == original_header
+    translation = next(line for line in lines if line.startswith("Dialogue: 1,"))
+    expected_y = 389 + expected_size + max(2, height / 180)
+    translation_size = height * 24 / 540
+    assert rf"\pos(118,{expected_y:g})\fs{translation_size:.2f}" in translation
+
+
+def test_source_font_adjustment_is_idempotent_and_preserves_custom_styles(tmp_path):
+    from media_subtitler.ass_layout import arib_playback_header
+
+    layout = layout_for(tmp_path, [event("はい", tags=r"{\fs42}")])
+    adjusted = arib_playback_header(layout.header, layout.style_format, layout.height)
+    assert arib_playback_header(adjusted, layout.style_format, layout.height) == adjusted
+    for style in ("Default,sans-serif,24,", "Custom,sans-serif,36,", "Default,Hiragino Sans,36,"):
+        custom = [line.replace("Default,sans-serif,36,", style) for line in layout.header]
+        result = arib_playback_header(custom, layout.style_format, layout.height)
+        assert any(line.startswith("Style: " + style) for line in result)
+    out = tmp_path / "bilingual.ass"
+    layout.write(translations(layout, ["是的"]), out, "PingFang SC")
+    assert layout.events[0] in out.read_text(encoding="utf-8-sig")
+    assert r"\pos(118,434)\fs24.00" in out.read_text(encoding="utf-8-sig")
