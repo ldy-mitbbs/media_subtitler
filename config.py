@@ -121,9 +121,9 @@ if not SETTINGS:
 def _default_translation_model(backend: str) -> str:
     backend = (backend or "").lower().strip()
     if backend == "openrouter":
-        return "deepseek/deepseek-v4-flash"
+        return "deepseek/deepseek-flash"
     if backend == "deepseek":
-        return "deepseek-v4-flash"
+        return "deepseek-flash"
     if backend == "lmstudio":
         return "qwen2.5-14b-instruct"
     return "qwen2.5:14b"

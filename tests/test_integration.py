@@ -458,7 +458,8 @@ class TestOpenRouterIntegration:
 class TestDeepSeekIntegration:
     """⚠️ 这些测试会消耗真实的 DeepSeek API Token（按量计费）。
     必须设置 DEEPSEEK_API_KEY 才会运行。
-    deepseek-v4-flash 当前价格：prompt $0.14 / 1M tokens, completion $0.28 / 1M tokens。
+    deepseek-flash 当前价格（峰值时段、缓存未命中）：prompt $0.30 / 1M tokens,
+    completion $1.20 / 1M tokens；非峰值时段减半。
     单次测试通常花费 < $0.001，但连续跑多次会累积。
     """
 
@@ -470,7 +471,7 @@ class TestDeepSeekIntegration:
         return key
 
     def test_deepseek_translate_single_line(self, ds_api_key):
-        pipeline = _pipeline("deepseek", "deepseek-v4-flash", DEEPSEEK_API_KEY=ds_api_key)
+        pipeline = _pipeline("deepseek", "deepseek-flash", DEEPSEEK_API_KEY=ds_api_key)
         result = pipeline._translate_single(
             "hello",
             source_language="en",
@@ -481,8 +482,8 @@ class TestDeepSeekIntegration:
         assert len(result["target"]) > 0
 
     def test_deepseek_thinking_mode_disabled(self, ds_api_key):
-        """deepseek-v4 默认启用 thinking mode；验证我们已强制关闭。"""
-        pipeline = _pipeline("deepseek", "deepseek-v4-flash", DEEPSEEK_API_KEY=ds_api_key)
+        """deepseek-flash 默认启用 thinking mode；验证我们已强制关闭。"""
+        pipeline = _pipeline("deepseek", "deepseek-flash", DEEPSEEK_API_KEY=ds_api_key)
         content = pipeline._chat_completion_deepseek(
             messages=[
                 {"role": "system", "content": "Reply with JSON only."},
@@ -495,7 +496,7 @@ class TestDeepSeekIntegration:
         assert "<tool_call>" not in content
 
     def test_deepseek_no_api_key_raises(self):
-        pipeline = _pipeline("deepseek", "deepseek-v4-flash", DEEPSEEK_API_KEY="")
+        pipeline = _pipeline("deepseek", "deepseek-flash", DEEPSEEK_API_KEY="")
         with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
             pipeline._chat_completion_deepseek(
                 messages=[{"role": "user", "content": "hi"}],

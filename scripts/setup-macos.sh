@@ -194,7 +194,7 @@ else:
     settings["WHISPER_CPP_MODEL_PATH"] = ""
 
 settings.setdefault("TRANSLATION_BACKEND", "deepseek")
-settings.setdefault("TRANSLATION_MODEL", "deepseek-v4-flash")
+settings.setdefault("TRANSLATION_MODEL", "deepseek-flash")
 settings.setdefault("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 settings.setdefault("DEEPSEEK_API_KEY", "")
 settings.setdefault("TARGET_LANGUAGE", "zh")

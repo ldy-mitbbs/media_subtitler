@@ -910,7 +910,7 @@ def test_job_manager_update_config_refreshes_cached_pipeline(tmp_path):
     cfg = {
         "MEDIA_DIR": str(tmp_path),
         "TRANSLATION_BACKEND": "deepseek",
-        "TRANSLATION_MODEL": "deepseek-v4-flash",
+        "TRANSLATION_MODEL": "deepseek-flash",
         "DEEPSEEK_API_KEY": "",
     }
     manager = SubtitleJobManager(cfg)
