@@ -572,6 +572,9 @@ class TestAdaptiveChunkSize:
         assert _adaptive_chunk_size("lmstudio", "qwen2.5-14b-instruct") == 8
 
     def test_deepseek_v4(self):
+        assert _adaptive_chunk_size("deepseek", "deepseek-flash") == 20
+        assert _adaptive_chunk_size("openrouter", "deepseek/deepseek-flash") == 20
+        # legacy alias still routes to the same model
         assert _adaptive_chunk_size("deepseek", "deepseek-v4-flash") == 20
 
     def test_openrouter_free(self):

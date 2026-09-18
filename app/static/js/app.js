@@ -49,13 +49,12 @@
   let cachedPricing = null;
   let cachedSettings = null;
 
-  // Static pricing for DeepSeek (USD per token, cache-miss). Mirror of
-  // _DEEPSEEK_PRICING in app/routes.py.
+  // Static pricing for DeepSeek (USD per token, peak-hour cache-miss rate;
+  // off-peak is half). Mirror of _DEEPSEEK_PRICING in app/routes.py.
   const DEEPSEEK_PRICING = {
-    'deepseek-v4-flash':  { prompt: 0.14e-6, completion: 0.28e-6 },
-    'deepseek-v4-pro':    { prompt: 1.74e-6, completion: 3.48e-6 },
-    'deepseek-chat':      { prompt: 0.14e-6, completion: 0.28e-6 },
-    'deepseek-reasoner':  { prompt: 0.14e-6, completion: 0.28e-6 },
+    'deepseek-flash':     { prompt: 0.30e-6, completion: 1.20e-6 },
+    'deepseek-v4-pro':    { prompt: 1.32e-6, completion: 3.96e-6 },
+    'deepseek-v4-flash':  { prompt: 0.30e-6, completion: 1.20e-6 },
   };
 
   const trackedJobs = new Map(); // job_id -> { el, polling }
@@ -495,8 +494,8 @@
     const backend = (activeTranslationBackend() || '').toLowerCase();
     const model = activeTranslationModel();
     const modelLc = (model || '').toLowerCase();
-    // DeepSeek V4 family handles large chunks reliably regardless of backend.
-    if (modelLc.includes('deepseek-v4')) return 20;
+    // DeepSeek V4/V4.1 family handles large chunks reliably regardless of backend.
+    if (modelLc.includes('deepseek-v4') || modelLc.includes('deepseek-flash')) return 20;
     if (backend === 'ollama' || backend === 'lmstudio') return 8;
     if (backend === 'deepseek') return 20;
     if (backend !== 'openrouter' || !model) return 10;

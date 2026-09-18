@@ -34,36 +34,34 @@ def _default_asr_backend():
     return "whispercpp" if _IS_APPLE_SILICON else "faster-whisper"
 
 # DeepSeek doesn't expose pricing via API, so we hardcode published USD/token rates.
-# Source: https://api-docs.deepseek.com/quick_start/pricing (cache-miss prices).
-# Note: deepseek-chat and deepseek-reasoner will be deprecated on 2026/07/24;
-# they map to deepseek-v4-flash non-thinking / thinking modes respectively.
+# Source: https://api-docs.deepseek.com/quick_start/pricing (verified 2026-09-17).
+#
+# DeepSeek bills at two tiers: peak (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri)
+# and off-peak (everything else), where off-peak is exactly half of peak. We
+# encode the *peak* cache-miss rate so an estimate is never an undercount.
+# Cache-hit input is ~50x cheaper but we can't predict hit rates, so ignore it.
+#
+# V4 Flash was retired on 2026-09-10 and replaced by V4.1 Flash under the new
+# `deepseek-flash` id; `deepseek-v4-flash` still routes there as a temporary
+# alias. `deepseek-chat` / `deepseek-reasoner` were removed on 2026-07-24.
 _DEEPSEEK_PRICING = {
-    "deepseek-v4-flash": {
-        "prompt": 0.14 / 1_000_000,
-        "completion": 0.28 / 1_000_000,
+    "deepseek-flash": {
+        "prompt": 0.30 / 1_000_000,
+        "completion": 1.20 / 1_000_000,
         "context_length": 1_000_000,
-        "name": "DeepSeek V4 Flash",
+        "name": "DeepSeek Flash (V4.1)",
     },
     "deepseek-v4-pro": {
-        # Listed price is $1.74 / $3.48 per 1M tokens (a 75% promo discount of
-        # $0.435 / $0.87 runs through 2026/05/31 — we use the standard rate
-        # so estimates remain valid after the promo expires).
-        "prompt": 1.74 / 1_000_000,
-        "completion": 3.48 / 1_000_000,
+        "prompt": 1.32 / 1_000_000,
+        "completion": 3.96 / 1_000_000,
         "context_length": 1_000_000,
         "name": "DeepSeek V4 Pro",
     },
-    "deepseek-chat": {
-        "prompt": 0.14 / 1_000_000,
-        "completion": 0.28 / 1_000_000,
+    "deepseek-v4-flash": {
+        "prompt": 0.30 / 1_000_000,
+        "completion": 1.20 / 1_000_000,
         "context_length": 1_000_000,
-        "name": "DeepSeek Chat (alias of v4-flash, deprecates 2026/07/24)",
-    },
-    "deepseek-reasoner": {
-        "prompt": 0.14 / 1_000_000,
-        "completion": 0.28 / 1_000_000,
-        "context_length": 1_000_000,
-        "name": "DeepSeek Reasoner (alias of v4-flash thinking, deprecates 2026/07/24)",
+        "name": "DeepSeek Flash (legacy alias of deepseek-flash)",
     },
 }
 
@@ -638,6 +636,7 @@ _MODEL_FAMILY_ALLOWLIST = (
     "openai/gpt-5-mini", "openai/gpt-4.1-mini", "openai/gpt-4o-mini", "openai/gpt-4o",
     "anthropic/claude-haiku", "anthropic/claude-3.5-haiku",
     "deepseek/deepseek-chat", "deepseek/deepseek-v3", "deepseek/deepseek-v4",
+    "deepseek/deepseek-flash",
     "mistralai/mistral", "qwen/qwen", "meta-llama/llama-3", "inclusionai/ling",
 )
 # Exclude any slug containing these substrings (multimodal / non-text use cases).
@@ -676,13 +675,13 @@ def _adaptive_chunk_size(backend, model):
     """
     backend = (backend or "").lower()
     model_lc = (model or "").lower()
-    # DeepSeek V4 family handles large chunks reliably regardless of backend.
-    if "deepseek-v4" in model_lc:
+    # DeepSeek V4/V4.1 family handles large chunks reliably regardless of backend.
+    if "deepseek-v4" in model_lc or "deepseek-flash" in model_lc:
         return 20
     if backend in ("ollama", "lmstudio"):
         return 8
     if backend == "deepseek":
-        # DeepSeek v4-flash is very cheap and has 1M context; can handle
+        # DeepSeek Flash is very cheap and has 1M context; can handle
         # large chunks reliably in non-thinking mode.
         return 20
     if backend != "openrouter" or not model:

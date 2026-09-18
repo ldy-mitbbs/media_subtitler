@@ -722,7 +722,7 @@ class SubtitlePipeline:
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         )
         self.deepseek_api_key = config.get("DEEPSEEK_API_KEY", "") or ""
-        self.translation_model = config.get("TRANSLATION_MODEL", "deepseek-v4-flash")
+        self.translation_model = config.get("TRANSLATION_MODEL", "deepseek-flash")
         self.translation_chunk_size = int(config.get("TRANSLATION_CHUNK_SIZE", 20))
         self.translation_timeout = int(config.get("TRANSLATION_TIMEOUT", 120))
         self.embedded_subtitle_timeout = int(
@@ -2809,13 +2809,18 @@ class SubtitlePipeline:
             raise RuntimeError(
                 "DEEPSEEK_API_KEY is not set. Export it in the environment to use the deepseek backend."
             )
-        # deepseek-v4-flash / v4-pro default to thinking mode, which produces
+        # deepseek-flash / v4-pro default to thinking mode, which produces
         # long internal reasoning traces and is too slow / expensive for
-        # line-by-line subtitle translation. Force non-thinking mode unless
-        # the user explicitly picks the legacy `deepseek-reasoner` alias.
+        # line-by-line subtitle translation, so force non-thinking mode.
+        # Covers `deepseek-flash`, the legacy `deepseek-v4-*` aliases that
+        # still route to it, and the removed `deepseek-chat` id.
         extra_payload = {}
         model = (self.translation_model or "").lower()
-        if model.startswith("deepseek-v4-") or model == "deepseek-chat":
+        if (
+            model.startswith("deepseek-flash")
+            or model.startswith("deepseek-v4-")
+            or model == "deepseek-chat"
+        ):
             extra_payload["thinking"] = {"type": "disabled"}
         return self._chat_completion_openai_compatible(
             base_url=self.deepseek_base_url,
