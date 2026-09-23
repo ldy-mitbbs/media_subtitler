@@ -86,6 +86,22 @@ def test_no_room_fails_without_overwriting_existing_output(tmp_path):
     assert out.read_text() == "existing output"
 
 
+def test_ruby_between_rows_does_not_block_translation(tmp_path):
+    # オバベン 2026-09-20 failure at 6175.69s: a small ruby glyph sits above
+    # the next caption row, inside the gap where the translation goes.
+    originals = [
+        event("《恋人に", x=190),
+        event("こ", x=350, y=419, tags=r"{\fs18}{\fsp2}"),
+        event("何でも買うてあげられるわよ》", x=230, y=449),
+    ]
+    layout = layout_for(tmp_path, originals)
+    assert [s["text"] for s in layout.segments()] == ["《恋人に", "何でも買うてあげられるわよ》"]
+    out = tmp_path / "bilingual.ass"
+    layout.write(translations(layout, ["给恋人", "我什么都能买给你。"]), out, "PingFang SC")
+    text = out.read_text(encoding="utf-8-sig")
+    assert "给恋人" in text and all(line in text for line in originals)
+
+
 @pytest.mark.parametrize("bad", [
     event("未確定", end="9:59:59.99"),
     event(r"二行\N字幕"),

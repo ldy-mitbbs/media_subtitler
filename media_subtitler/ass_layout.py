@@ -182,7 +182,9 @@ class AribLayout:
             y = row["y"] + source_height + gap
             bottom = self.height - gap
             for box in self.boxes:
-                if not _overlap(row, box):
+                # Ruby annotations are excluded from rows; do not let these
+                # small glyphs block translation placement either.
+                if box.get("ruby") or not _overlap(row, box):
                     continue
                 if box["y"] >= row["y"] + source_height - 0.1:
                     bottom = min(bottom, box["y"] - 2)
@@ -289,7 +291,7 @@ def read_arib_ass(path):
     for box in boxes:
         # Keep small reading annotations (ruby) in the source ASS, but translate
         # the associated main line only. Standalone small captions still count.
-        ruby = any(
+        box["ruby"] = any(
             other is not box and _overlap(box, other)
             and box["height"] <= other["height"] * 0.65
             and 0 <= other["y"] - box["y"] - box["height"] <= other["height"] * 0.6
@@ -297,7 +299,7 @@ def read_arib_ass(path):
             and box["x"] + box["width"] > other["x"]
             for other in boxes
         )
-        if not ruby:
+        if not box["ruby"]:
             groups.setdefault((box["start"], box["end"], box["y"]), []).append(box)
     rows = []
     for key in sorted(groups):
