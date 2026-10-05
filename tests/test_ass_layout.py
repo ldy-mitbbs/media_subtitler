@@ -3,7 +3,13 @@ import re
 
 import pytest
 
-from media_subtitler.ass_layout import CACHE_MARKER, LayoutError, load_cached_layout, read_arib_ass
+from media_subtitler.ass_layout import (
+    CACHE_MARKER,
+    EmptyAribLayoutError,
+    LayoutError,
+    load_cached_layout,
+    read_arib_ass,
+)
 from app.models.subtitle_pipeline import SubtitlePipeline, write_srt
 
 
@@ -22,6 +28,21 @@ def layout_for(tmp_path, events, height=540):
 
 def translations(layout, targets):
     return [dict(s, target_text=t) for s, t in zip(layout.segments(), targets)]
+
+
+def test_empty_caption_track_raises_distinct_empty_error(tmp_path):
+    # A broadcast whose caption PID only sends clear-screen commands yields a
+    # well-formed ASS where every dialogue is empty. That is not a layout
+    # problem -- signal it separately so callers can transcribe instead.
+    p = tmp_path / "empty.ass"
+    p.write_text(
+        HEADER
+        + "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,\n"
+        + "Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,\n"
+    )
+    with pytest.raises(EmptyAribLayoutError, match="No positioned ARIB"):
+        read_arib_ass(p)
+    assert issubclass(EmptyAribLayoutError, LayoutError)
 
 
 def test_preserves_source_events_and_places_chinese_between_rows(tmp_path):

@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from app.models.subtitle_pipeline import (
+    EmptyEmbeddedSubtitleError,
     FatalTranslationError,
     SubtitlePipeline,
     _collapse_degenerate_repeats,
@@ -520,7 +521,73 @@ def test_arib_extraction_maps_stable_pid_even_if_probe_indices_change(tmp_path, 
     assert cmd[cmd.index("-map") + 1] == "0:i:0x240"
 
 
-def test_empty_arib_track_keeps_reason_instead_of_starting_whisper(tmp_path, mocker):
+# Real libaribcaption output for a broadcast whose caption PID only ever
+# sends clear-screen commands: well-formed ASS, but every dialogue is empty.
+EMPTY_ARIB_ASS = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 960
+PlayResY: 540
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,sans-serif,36,&Hffffff,&Hffffff,&H0,&H0,0,0,0,0,100,100,0,0,4,0,4,2,10,10,10,0
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,
+Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,
+"""
+
+
+def test_empty_arib_extraction_raises_empty_embedded_subtitle_error(tmp_path, mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_ffmpeg_has_decoder", return_value=True)
+
+    def extract(cmd, **kwargs):  # noqa: ARG001
+        Path(cmd[-1]).write_text(EMPTY_ARIB_ASS, encoding="utf-8")
+        return 0, ""
+
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=extract)
+    with pytest.raises(EmptyEmbeddedSubtitleError, match="No positioned ARIB"):
+        pipeline._extract_arib_layout(
+            tmp_path / "broadcast.ts", {"index": 2, "stream_id": "0x240"},
+            tmp_path / "broadcast.orig.srt",
+        )
+
+
+def test_empty_arib_track_falls_back_to_transcription(tmp_path, mocker):
+    media = tmp_path / "empty.ts"
+    media.write_bytes(b"fake")
+    pipeline = _pipeline()
+    mocker.patch.object(pipeline, "_find_embedded_subtitle_stream", return_value={
+        "index": 9, "codec": "arib_caption", "stream_id": "0x130",
+        "label": "ARIB / PID 0x130 / main video 1440x1080",
+    })
+    mocker.patch.object(
+        pipeline, "_extract_embedded_subtitle",
+        side_effect=EmptyEmbeddedSubtitleError("No positioned ARIB subtitle rows found"),
+    )
+    transcribe = mocker.patch.object(pipeline, "_transcribe", return_value=(
+        [{"start": 0.0, "end": 1.0, "text": "こんにちは"}], "ja",
+    ))
+    mocker.patch.object(pipeline, "_translate_segments", return_value=[
+        {"start": 0.0, "end": 1.0, "text": "こんにちは\n你好"},
+    ])
+    messages = []
+
+    result = pipeline.process(
+        media, progress_cb=lambda _p, message: messages.append(message),
+    )
+
+    transcribe.assert_called_once()
+    assert result["stage"] == "completed"
+    assert result["source_language"] == "ja"
+    assert any("no captions" in message for message in messages)
+
+
+def test_generic_arib_extraction_error_keeps_reason_instead_of_starting_whisper(tmp_path, mocker):
     media = tmp_path / "empty.ts"
     media.write_bytes(b"fake")
     pipeline = _pipeline()
@@ -529,10 +596,10 @@ def test_empty_arib_track_keeps_reason_instead_of_starting_whisper(tmp_path, moc
         "label": "ARIB / PID 0x130 / main video 1440x1080",
     })
     mocker.patch.object(pipeline, "_extract_embedded_subtitle", side_effect=ValueError(
-        "No positioned ARIB subtitle rows found",
+        "ARIB layout requires static, top-left positioned single-line ASS events",
     ))
     transcribe = mocker.patch.object(pipeline, "_transcribe")
-    with pytest.raises(RuntimeError, match="PID 0x130.*No positioned ARIB subtitle rows found"):
+    with pytest.raises(RuntimeError, match="PID 0x130.*static, top-left positioned"):
         pipeline.process(media)
     transcribe.assert_not_called()
 

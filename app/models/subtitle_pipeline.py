@@ -187,6 +187,15 @@ class RateLimitError(RuntimeError):
     """Raised when the translation API rate-limits us beyond what we can wait out."""
 
 
+class EmptyEmbeddedSubtitleError(RuntimeError):
+    """The embedded subtitle track decoded but contains no cues.
+
+    Not an actionable failure: some broadcast TS files carry a caption PID
+    that only ever sends empty/clear-screen data. The caller should fall back
+    to audio transcription instead of failing the job.
+    """
+
+
 class FatalTranslationError(RuntimeError):
     """Stop translation when further batch splitting cannot recover the job."""
 
@@ -857,6 +866,18 @@ class SubtitlePipeline:
                         progress_cb=progress_cb,
                         language_hint=source_language_hint,
                     )
+                except EmptyEmbeddedSubtitleError as exc:
+                    # The track exists and decodes, but carries no caption
+                    # text (e.g. a broadcast PID that only sends clear-screen
+                    # commands). Nothing is broken -- transcribe the audio.
+                    segments = []
+                    source_language = None
+                    if progress_cb:
+                        progress_cb(
+                            None,
+                            f"Embedded subtitle track contains no captions ({exc}); "
+                            "transcribing audio instead",
+                        )
                 except Exception as exc:
                     if not self.fallback_on_embedded_subtitle_error:
                         label = embedded_subtitle.get("label") or "embedded subtitle"
@@ -1492,7 +1513,7 @@ class SubtitlePipeline:
 
             segments = clean_extracted_subtitle_segments(read_srt(temp_srt))
             if not segments:
-                raise RuntimeError("extracted subtitle track was empty")
+                raise EmptyEmbeddedSubtitleError("extracted subtitle track was empty")
 
             write_srt(segments, output_srt)
             source_language = (
@@ -1518,7 +1539,11 @@ class SubtitlePipeline:
 
     def _extract_arib_layout(self, media_path, subtitle_stream, output_srt,
                              progress_cb=None, language_hint=None):
-        from media_subtitler.ass_layout import CACHE_MARKER, read_arib_ass
+        from media_subtitler.ass_layout import (
+            CACHE_MARKER,
+            EmptyAribLayoutError,
+            read_arib_ass,
+        )
 
         if not self._ffmpeg_has_decoder("libaribcaption"):
             raise RuntimeError(
@@ -1548,7 +1573,10 @@ class SubtitlePipeline:
             )
             if returncode != 0:
                 raise RuntimeError(f"ffmpeg subtitle extraction failed: {(output or '')[:500]}")
-            layout = read_arib_ass(temp_ass)
+            try:
+                layout = read_arib_ass(temp_ass)
+            except EmptyAribLayoutError as exc:
+                raise EmptyEmbeddedSubtitleError(str(exc)) from exc
             layout.stream_index = int(subtitle_stream["index"])
             segments = layout.segments()
             original_ass = Path(output_srt).with_suffix(".ass")

@@ -20,6 +20,15 @@ class LayoutError(ValueError):
     pass
 
 
+class EmptyAribLayoutError(LayoutError):
+    """The caption track decoded fine but carries no text rows.
+
+    Distinct from a malformed/unsupported ASS: some broadcasts include an
+    arib_caption PID that only ever sends clear-screen commands, so there is
+    nothing wrong to report -- the caller should transcribe the audio instead.
+    """
+
+
 def _timestamp(value):
     hours, minutes, seconds = value.strip().split(":")
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
@@ -284,8 +293,10 @@ def read_arib_ass(path):
                 "width": _units(plain) * glyph_width + len(plain) * advance,
                 "text": plain, "layer": int(event.get("layer", 0)),
             })
-    if not width or not height or not style_format or not event_format or not boxes:
-        raise LayoutError("No positioned ARIB subtitle rows found")
+    if not width or not height or not style_format or not event_format:
+        raise LayoutError("ARIB ASS is missing header or format rows")
+    if not boxes:
+        raise EmptyAribLayoutError("No positioned ARIB subtitle rows found")
 
     groups = {}
     for box in boxes:
