@@ -95,7 +95,8 @@ cd media_subtitler
 
 - 用 Homebrew 装好 `ffmpeg` 和 `whisper-cpp`（已经装过、或已有自己编译的
   `whisper.cpp` 会被自动探测并复用，不会重复安装）；
-- 创建 `.venv` 并安装依赖；
+- 使用 Python 3.10 或更新版本创建 `.venv` 并安装依赖；没有兼容版本时会通过
+  Homebrew 安装 Python 3.12，旧版 `.venv` 会自动重建；
 - 下载 `ggml-large-v3-turbo` 模型到 `~/.cache/media_subtitler/models/`
   （约 1.5GB，Apple Silicon 上的默认模型）；
 - 生成 `settings.json`（已在 `.gitignore` 里），并提示填入 DeepSeek API key；

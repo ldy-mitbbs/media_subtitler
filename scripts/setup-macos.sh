@@ -113,12 +113,43 @@ fi
 
 # --- Python environment -------------------------------------------------
 step "Setting up Python environment"
-if [ ! -x ".venv/bin/python" ]; then
+python_is_supported() {
+  "$1" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
+if [ -x ".venv/bin/python" ] && python_is_supported ".venv/bin/python"; then
+  :
+else
+  if [ -x ".venv/bin/python" ]; then
+    warn "existing .venv uses an unsupported Python; it will be recreated"
+  fi
+
   PYTHON_BIN=""
   for candidate in python3.12 python3.11 python3; do
-    command -v "$candidate" >/dev/null 2>&1 && { PYTHON_BIN="$candidate"; break; }
+    if command -v "$candidate" >/dev/null 2>&1 \
+      && python_is_supported "$(command -v "$candidate")"; then
+      PYTHON_BIN="$(command -v "$candidate")"
+      break
+    fi
   done
-  [ -n "$PYTHON_BIN" ] || { echo "No python3 found. brew install python@3.12" >&2; exit 1; }
+
+  if [ -z "$PYTHON_BIN" ] && [ "$SKIP_BREW" = "0" ] && [ -n "$BREW" ]; then
+    echo "    installing python@3.12..."
+    "$BREW" install python@3.12
+    BREW_PYTHON="$("$BREW" --prefix python@3.12)/bin/python3.12"
+    if [ -x "$BREW_PYTHON" ] && python_is_supported "$BREW_PYTHON"; then
+      PYTHON_BIN="$BREW_PYTHON"
+    fi
+  fi
+
+  if [ -z "$PYTHON_BIN" ]; then
+    echo "Python 3.10 or newer is required. Install it with 'brew install python@3.12' and rerun this script." >&2
+    exit 1
+  fi
+
+  if [ -e ".venv" ]; then
+    rm -rf .venv
+  fi
   echo "    creating .venv with $PYTHON_BIN"
   "$PYTHON_BIN" -m venv .venv
 fi
