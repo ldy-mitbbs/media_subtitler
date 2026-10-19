@@ -1040,3 +1040,165 @@ def test_openrouter_asr_backend_posts_audio_and_writes_srt(tmp_path, mocker):
     assert payload["model"] == "qwen/qwen3-asr-flash-2026-02-10"
     assert "data" in payload["input_audio"]
     assert payload["input_audio"]["format"] == "wav"
+
+
+# ---------------------------------------------------------------------------
+# Multi-window language vote (whisper.cpp auto-detect is first-30s only)
+# ---------------------------------------------------------------------------
+
+from app.models.subtitle_pipeline import (
+    _language_vote_offsets,
+    _tally_language_votes,
+)
+
+
+def test_language_vote_offsets_spread_over_duration():
+    offsets = _language_vote_offsets(7200.0)
+    assert len(offsets) == 5
+    assert offsets[0] == 0.0
+    assert offsets[-1] == 7200.0 * 0.95
+    assert offsets == sorted(offsets)
+    assert all(later - earlier >= 1.0 for earlier, later in zip(offsets, offsets[1:]))
+
+
+def test_language_vote_offsets_short_files_get_overlapping_windows():
+    # Windows may overlap when the file is short; they stay within bounds.
+    offsets = _language_vote_offsets(60.0)
+    assert offsets[0] == 0.0
+    assert all(0.0 <= off <= 30.0 for off in offsets)
+
+
+def test_language_vote_offsets_tiny_file_collapses_to_single_window():
+    assert _language_vote_offsets(20.0) == [0.0]
+
+
+def test_language_vote_offsets_zero_duration():
+    assert _language_vote_offsets(0.0) == []
+    assert _language_vote_offsets(-5.0) == []
+
+
+def test_tally_language_votes_majority_wins():
+    assert _tally_language_votes(["en", "ja", "ja", "ja", "ko"]) == "ja"
+    assert _tally_language_votes(["ko", "ko", "ja", None, None]) == "ko"
+
+
+def test_tally_language_votes_tie_goes_to_earliest_window():
+    # Stock whisper trusts the first window; keep that behaviour on ties.
+    assert _tally_language_votes(["en", "ja", "en", "ja"]) == "en"
+    assert _tally_language_votes(["ko", "ja", "ko", "ja"]) == "ko"
+
+
+def test_tally_language_votes_no_usable_detection():
+    assert _tally_language_votes([None, None, None]) is None
+    assert _tally_language_votes([]) is None
+
+
+class _Completed:
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
+def _whispercpp_pipeline(tmp_path, mocker, votes):
+    """Pipeline wired so whisper-cli runs are fully faked.
+
+    ``votes`` lists the per-window detection results ("ja", "en", or None for
+    a failed detection); each None beyond the vote list ends detection.
+    Returns (pipeline, whisper_cli_mock, media_path).
+    """
+    mocker.patch(
+        "app.models.subtitle_pipeline._find_media_tool",
+        side_effect=lambda name: f"/usr/bin/{name}",
+    )
+    pipeline = _pipeline(WHISPER_BACKEND="whispercpp")
+    mocker.patch.object(
+        pipeline, "_resolve_whispercpp_model_path", return_value=tmp_path / "model.bin"
+    )
+    mocker.patch.object(pipeline, "_extract_audio_for_whispercpp",
+                        lambda *a, **k: (tmp_path / "input.wav").touch())
+    mocker.patch.object(pipeline, "_probe_media_duration", return_value=3600.0)
+
+    vote_iter = iter(votes)
+
+    def fake_run(cmd, **kwargs):
+        if "-dl" in cmd:
+            # Language-vote detection window: materialise the clip and answer
+            # the way `whisper-cli -dl -ojf` does (result JSON on disk).
+            clip = Path(cmd[cmd.index("-f") + 1])
+            clip.touch()
+            vote = next(vote_iter, None)
+            if vote is None:
+                return _Completed(stdout="", stderr="", returncode=1)
+            base = Path(cmd[cmd.index("-of") + 1])
+            base.with_suffix(".json").write_text(
+                json.dumps({"result": {"language": vote}})
+            )
+            return _Completed(stderr=f"auto-detected language: {vote} (p = 0.9)")
+        # Main transcription run: emit the JSON output whisper-cli would write.
+        output_base = Path(cmd[cmd.index("-of") + 1])
+        (output_base.with_suffix(".json")).write_text(json.dumps({
+            "result": {"language": cmd[cmd.index("-l") + 1]},
+            "transcription": [
+                {"text": "こんにちは", "offsets": {"from": 0, "to": 1000}},
+            ],
+        }))
+        return _Completed()
+
+    mock_run = mocker.patch("app.models.subtitle_pipeline.subprocess.run",
+                            side_effect=fake_run)
+
+    def fake_ffmpeg(cmd, **kwargs):
+        # ffmpeg slice: materialise the output clip so the existence check passes.
+        Path(cmd[-1]).touch()
+        return 0, ""
+
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=fake_ffmpeg)
+    media_path = tmp_path / "show.ts"
+    media_path.touch()
+    return pipeline, mock_run, media_path
+
+
+def test_whispercpp_auto_hint_triggers_vote_and_uses_winner(tmp_path, mocker):
+    pipeline, mock_run, media_path = _whispercpp_pipeline(
+        tmp_path, mocker, votes=["en", "ja", "ja", "ja", "ko"]
+    )
+
+    segments, source_language = pipeline._transcribe_with_whispercpp(
+        media_path, language_hint="auto"
+    )
+
+    main_cmds = [c for c in mock_run.call_args_list if "-dl" not in c.args[0]]
+    assert len(main_cmds) == 1
+    main_cmd = main_cmds[0].args[0]
+    assert main_cmd[main_cmd.index("-l") + 1] == "ja"
+    assert source_language == "ja"
+    detect_calls = [c for c in mock_run.call_args_list if "-dl" in c.args[0]]
+    assert len(detect_calls) == 5
+
+
+def test_whispercpp_explicit_hint_skips_vote(tmp_path, mocker):
+    pipeline, mock_run, media_path = _whispercpp_pipeline(tmp_path, mocker, votes=[])
+
+    _, source_language = pipeline._transcribe_with_whispercpp(
+        media_path, language_hint="ko"
+    )
+
+    assert all("-dl" not in c.args[0] for c in mock_run.call_args_list)
+    main_cmd = mock_run.call_args_list[0].args[0]
+    assert main_cmd[main_cmd.index("-l") + 1] == "ko"
+    assert source_language == "ko"
+
+
+def test_whispercpp_vote_failure_falls_back_to_auto(tmp_path, mocker):
+    pipeline, mock_run, media_path = _whispercpp_pipeline(
+        tmp_path, mocker, votes=[None, None, None, None, None]
+    )
+
+    _, source_language = pipeline._transcribe_with_whispercpp(
+        media_path, language_hint="auto"
+    )
+
+    main_cmd = [c for c in mock_run.call_args_list if "-dl" not in c.args[0]][0].args[0]
+    assert main_cmd[main_cmd.index("-l") + 1] == "auto"
+    assert source_language == "auto"

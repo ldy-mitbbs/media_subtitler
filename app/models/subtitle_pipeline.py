@@ -161,6 +161,50 @@ def _find_media_tool(name):
     return None
 
 
+#: Fractions of the file duration at which to sample audio when voting on
+#: Whisper's auto-detected language. whisper.cpp decides auto-detect from the
+#: first ~30 s only; broadcast intros (music, sparse dialogue) can flip that
+#: single window to the wrong language — after which whisper *translates* the
+#: whole file into English instead of erroring.
+_LANGUAGE_VOTE_FRACTIONS = (0.0, 0.25, 0.5, 0.75, 0.95)
+#: Length (seconds) of each sampled detection window.
+_LANGUAGE_VOTE_WINDOW_S = 30.0
+
+
+def _language_vote_offsets(duration_s, window_s=_LANGUAGE_VOTE_WINDOW_S,
+                           fractions=_LANGUAGE_VOTE_FRACTIONS):
+    """Return detection window start offsets (seconds) spread over the file."""
+    if duration_s <= 0:
+        return []
+    latest = max(0.0, duration_s - window_s)
+    offsets = []
+    for frac in fractions:
+        offset = min(duration_s * frac, latest)
+        if all(abs(offset - seen) >= 1.0 for seen in offsets):
+            offsets.append(offset)
+    return offsets or [0.0]
+
+
+def _tally_language_votes(votes):
+    """Majority language from per-window detections; ties go to the earliest
+    window (matching stock whisper's trust-the-start behaviour).
+
+    ``votes`` is a list of detected language codes, with None for windows
+    whose detection failed. Returns None when no window produced a vote.
+    """
+    tally = {}
+    for vote in votes:
+        if vote:
+            tally[vote] = tally.get(vote, 0) + 1
+    if not tally:
+        return None
+    best = max(tally.values())
+    for vote in votes:  # file order; first-to-reach the max wins ties
+        if tally.get(vote) == best:
+            return vote
+    return None
+
+
 def format_ass_timestamp(seconds):
     total_cs = max(0, int(seconds * 100))
     hours = total_cs // 360000
@@ -1911,6 +1955,17 @@ class SubtitlePipeline:
             if progress_cb:
                 progress_cb(10, f"Running whisper.cpp ({self.whisper_model_name})")
 
+            effective_hint = (language_hint or "").strip().lower()
+            if effective_hint in ("", "auto"):
+                voted = self._detect_language_vote_whispercpp(
+                    wav_path,
+                    model_path,
+                    progress_cb=progress_cb,
+                    cancel_event=getattr(self, "_active_cancel_event", None),
+                )
+                if voted:
+                    effective_hint = voted
+
             cmd = [
                 command_path,
                 "-m",
@@ -1921,7 +1976,7 @@ class SubtitlePipeline:
                 "-of",
                 str(output_base),
                 "-l",
-                language_hint or "auto",
+                effective_hint or "auto",
                 "-np",
                 # --- Hallucination-loop mitigations (matches faster-whisper). ---
                 # Don't carry previous text as context; this is the main cause
@@ -2174,6 +2229,116 @@ class SubtitlePipeline:
             raise RuntimeError(
                 f"ffmpeg audio extraction failed: {(output or 'unknown ffmpeg error')[:500]}"
             )
+
+    def _detect_language_vote_whispercpp(
+        self, wav_path, model_path, progress_cb=None, cancel_event=None
+    ):
+        """Vote on the spoken language by auto-detecting on windows across
+        the extracted WAV.
+
+        whisper.cpp's own auto-detect inspects only the first ~30 s, which
+        broadcast intros (music, sparse dialogue) can mislead; once the
+        language token is wrong, whisper *translates* the whole file into
+        English instead of failing. Sampling several windows and taking the
+        majority makes ``auto`` reliable for mixed ja/ko libraries.
+
+        Returns a language code, or None when no window produced a usable
+        detection (the caller then keeps whisper's single-window auto mode).
+        """
+        ffmpeg_path = _find_media_tool("ffmpeg")
+        ffprobe_path = _find_media_tool("ffprobe")
+        command_path = _find_media_tool(self.whisper_cpp_command)
+        if not (ffmpeg_path and ffprobe_path and command_path):
+            return None
+
+        duration = self._probe_media_duration(ffprobe_path, wav_path)
+        offsets = _language_vote_offsets(duration)
+        if not offsets:
+            return None
+
+        votes = []
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-langvote-") as temp_dir:
+            for index, offset in enumerate(offsets, start=1):
+                if cancel_event is not None and cancel_event.is_set():
+                    return None
+                clip_path = Path(temp_dir) / f"window-{index}.wav"
+                slice_cmd = [
+                    ffmpeg_path, "-y", "-nostdin", "-hide_banner", "-loglevel", "error",
+                    "-ss", f"{offset:.3f}",
+                    "-t", str(int(_LANGUAGE_VOTE_WINDOW_S)),
+                    "-i", str(wav_path),
+                    "-c:a", "pcm_s16le",
+                    str(clip_path),
+                ]
+                returncode, _ = self._run_ffmpeg_command(
+                    slice_cmd,
+                    label="Sampling audio for language vote",
+                    timeout=120,
+                    cancel_event=cancel_event,
+                )
+                if returncode != 0 or not clip_path.exists():
+                    votes.append(None)
+                    continue
+
+                detect_base = Path(temp_dir) / f"window-{index}"
+                detect_cmd = [
+                    command_path, "-m", str(model_path),
+                    "-f", str(clip_path),
+                    "-l", "auto", "-dl",
+                    # -dl exits right after detecting; -ojf makes it write the
+                    # result as JSON. Parse that (not the console log — the
+                    # auto-detected line is suppressed by -np in some builds).
+                    "-ojf", "-of", str(detect_base),
+                    "-np",
+                ]
+                if self.whisper_cpp_threads > 0:
+                    detect_cmd.extend(["-t", str(self.whisper_cpp_threads)])
+                completed = subprocess.run(
+                    detect_cmd, capture_output=True, text=True,
+                    errors="replace", check=False,
+                )
+                vote = None
+                json_path = detect_base.with_suffix(".json")
+                if completed.returncode == 0 and json_path.exists():
+                    try:
+                        payload = json.loads(
+                            json_path.read_text(encoding="utf-8", errors="replace")
+                        )
+                        vote = (payload.get("result") or {}).get("language")
+                    except ValueError:
+                        vote = None
+                votes.append((vote or "").strip().lower() or None)
+                if progress_cb:
+                    progress_cb(
+                        None,
+                        f"Language vote {index}/{len(offsets)}: "
+                        f"{votes[-1] or '?'} (@{int(offset)}s)",
+                    )
+
+        winner = _tally_language_votes(votes)
+        if progress_cb:
+            detail = ", ".join(vote or "?" for vote in votes)
+            if winner:
+                progress_cb(None, f"Language vote: {winner} [{detail}]")
+            else:
+                progress_cb(
+                    None, "Language vote: no result; using whisper auto-detect"
+                )
+        return winner
+
+    @staticmethod
+    def _probe_media_duration(ffprobe_path, media_path):
+        """Duration in seconds via ffprobe; 0.0 when it cannot be determined."""
+        try:
+            completed = subprocess.run(
+                [ffprobe_path, "-v", "error", "-show_entries", "format=duration",
+                 "-of", "json", str(media_path)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            payload = json.loads(completed.stdout or "{}")
+            return float(payload.get("format", {}).get("duration") or 0.0)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return 0.0
 
     @staticmethod
     def _run_ffmpeg_progress(cmd, *, label: str = "Extracting audio", progress_cb=None):
