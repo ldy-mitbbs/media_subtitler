@@ -232,11 +232,12 @@ class RateLimitError(RuntimeError):
 
 
 class EmptyEmbeddedSubtitleError(RuntimeError):
-    """The embedded subtitle track decoded but contains no cues.
+    """The embedded subtitle track has no usable full-recording cues.
 
     Not an actionable failure: some broadcast TS files carry a caption PID
-    that only ever sends empty/clear-screen data. The caller should fall back
-    to audio transcription instead of failing the job.
+    that only sends clear-screen data or captions for a small part of the
+    recording. The caller should fall back to audio transcription instead of
+    failing the job.
     """
 
 
@@ -911,15 +912,14 @@ class SubtitlePipeline:
                         language_hint=source_language_hint,
                     )
                 except EmptyEmbeddedSubtitleError as exc:
-                    # The track exists and decodes, but carries no caption
-                    # text (e.g. a broadcast PID that only sends clear-screen
-                    # commands). Nothing is broken -- transcribe the audio.
+                    # The track exists and decodes, but is empty or covers only
+                    # a small part of the recording. Transcribe the audio.
                     segments = []
                     source_language = None
                     if progress_cb:
                         progress_cb(
                             None,
-                            f"Embedded subtitle track contains no captions ({exc}); "
+                            f"Embedded subtitle track is empty or incomplete ({exc}); "
                             "transcribing audio instead",
                         )
                 except Exception as exc:
@@ -1623,6 +1623,21 @@ class SubtitlePipeline:
                 raise EmptyEmbeddedSubtitleError(str(exc)) from exc
             layout.stream_index = int(subtitle_stream["index"])
             segments = layout.segments()
+            ffprobe_path = _find_media_tool("ffprobe")
+            media_duration = (
+                self._probe_media_duration(ffprobe_path, media_path)
+                if ffprobe_path else 0.0
+            )
+            last_caption_end = max(
+                (float(segment.get("end") or 0.0) for segment in segments),
+                default=0.0,
+            )
+            if media_duration and last_caption_end < media_duration / 2:
+                raise EmptyEmbeddedSubtitleError(
+                    "incomplete ARIB captions: last caption ends at "
+                    f"{format_srt_timestamp(last_caption_end)} in a "
+                    f"{format_srt_timestamp(media_duration)} recording"
+                )
             original_ass = Path(output_srt).with_suffix(".ass")
             document = temp_ass.read_text(encoding="utf-8-sig")
             document = document.replace(

@@ -512,6 +512,7 @@ def test_arib_extraction_maps_stable_pid_even_if_probe_indices_change(tmp_path, 
         return 0, ""
 
     mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=extract)
+    mocker.patch.object(pipeline, "_probe_media_duration", return_value=1.0)
     segments, _ = pipeline._extract_arib_layout(
         tmp_path / "broadcast.ts", {"index": 2, "stream_id": "0x240"},
         tmp_path / "broadcast.orig.srt",
@@ -519,6 +520,30 @@ def test_arib_extraction_maps_stable_pid_even_if_probe_indices_change(tmp_path, 
     assert segments
     cmd = commands[0]
     assert cmd[cmd.index("-map") + 1] == "0:i:0x240"
+
+
+def test_sparse_arib_extraction_is_rejected_as_incomplete(tmp_path, mocker):
+    pipeline = _pipeline()
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_ffmpeg_has_decoder", return_value=True)
+
+    def extract(cmd, **kwargs):  # noqa: ARG001
+        text = (Path(__file__).parent / "fixtures/arib-positioned.ass").read_text()
+        Path(cmd[-1]).write_text(
+            text.replace("0:00:00.00,0:00:01.00", "0:44:35.00,0:45:35.00"),
+            encoding="utf-8",
+        )
+        return 0, ""
+
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=extract)
+    mocker.patch.object(pipeline, "_probe_media_duration", return_value=6907.054711)
+    with pytest.raises(EmptyEmbeddedSubtitleError, match="incomplete ARIB captions"):
+        pipeline._extract_arib_layout(
+            tmp_path / "broadcast.ts", {"index": 2, "stream_id": "0x240"},
+            tmp_path / "broadcast.orig.srt",
+        )
+    assert not (tmp_path / "broadcast.orig.srt").exists()
+    assert not (tmp_path / "broadcast.orig.ass").exists()
 
 
 # Real libaribcaption output for a broadcast whose caption PID only ever
@@ -584,7 +609,7 @@ def test_empty_arib_track_falls_back_to_transcription(tmp_path, mocker):
     transcribe.assert_called_once()
     assert result["stage"] == "completed"
     assert result["source_language"] == "ja"
-    assert any("no captions" in message for message in messages)
+    assert any("empty or incomplete" in message for message in messages)
 
 
 def test_generic_arib_extraction_error_keeps_reason_instead_of_starting_whisper(tmp_path, mocker):
