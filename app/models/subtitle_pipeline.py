@@ -869,6 +869,7 @@ class SubtitlePipeline:
         self._json_mode_enabled = self._supports_json_mode()
 
         original_srt = media_path.with_suffix(".orig.srt")
+        transcript_source = "unknown"
         if skip_transcription:
             if not original_srt.exists():
                 raise RuntimeError(
@@ -886,6 +887,7 @@ class SubtitlePipeline:
             )
             if self._source_ass_layout:
                 segments = self._source_ass_layout.segments()
+                transcript_source = "arib"
             else:
                 segments = self._repair_mojibake_segments(segments)
                 segments = _dedupe_repeated_segments(segments)
@@ -937,6 +939,7 @@ class SubtitlePipeline:
                             f"falling back to transcription ({exc})",
                         )
                 else:
+                    transcript_source = "arib" if self._source_ass_layout else "embedded"
                     if not self._source_ass_layout:
                         segments = self._repair_mojibake_segments(segments)
                         segments = _dedupe_repeated_segments(segments)
@@ -959,6 +962,7 @@ class SubtitlePipeline:
                 if not segments:
                     raise RuntimeError("No speech segments detected")
 
+                transcript_source = "whisper"
                 write_srt(segments, original_srt)
 
         normalized_lang = (source_language or "unknown").strip().lower()
@@ -971,6 +975,7 @@ class SubtitlePipeline:
                 "target_language": target_lang,
                 "segment_count": len(segments),
                 "original_srt": str(original_srt),
+                "transcript_source": transcript_source,
                 "original_ass": str(media_path.with_suffix(".orig.ass")) if self._source_ass_layout else None,
                 "bilingual_srt": None,
                 "bilingual_ass": None,
@@ -1028,6 +1033,7 @@ class SubtitlePipeline:
             "target_language": target_lang,
             "segment_count": len(segments),
             "original_srt": str(original_srt),
+            "transcript_source": transcript_source,
             "original_ass": str(media_path.with_suffix(".orig.ass")) if self._source_ass_layout else None,
             "bilingual_srt": str(bilingual_srt),
             "bilingual_ass": str(bilingual_ass),

@@ -609,6 +609,7 @@ def test_empty_arib_track_falls_back_to_transcription(tmp_path, mocker):
     transcribe.assert_called_once()
     assert result["stage"] == "completed"
     assert result["source_language"] == "ja"
+    assert result["transcript_source"] == "whisper"
     assert any("empty or incomplete" in message for message in messages)
 
 
@@ -680,6 +681,7 @@ def test_process_uses_embedded_subtitles_before_whisper(tmp_path, mocker):
 
     transcribe_mock.assert_not_called()
     assert result["source_language"] == "ko"
+    assert result["transcript_source"] == "embedded"
     assert result["segment_count"] == 1
     assert Path(result["original_srt"]).read_text(encoding="utf-8").count("안녕") == 1
     ffmpeg_cmd = seen["cmd"]

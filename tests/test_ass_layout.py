@@ -148,6 +148,7 @@ def test_translation_retry_restores_rows_and_detects_edited_srt(tmp_path, mocker
     result = pipeline.process(media, skip_transcription=True)
     probe.assert_not_called()
     assert result["source_language"] == "ja"
+    assert result["transcript_source"] == "arib"
     assert result["original_ass"] == str(source_ass)
     output = Path(result["bilingual_ass"]).read_text(encoding="utf-8-sig")
     assert output.count("AribTranslation,,0,0,0,,") == 2
