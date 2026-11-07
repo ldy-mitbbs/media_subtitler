@@ -522,6 +522,39 @@ def test_arib_extraction_maps_stable_pid_even_if_probe_indices_change(tmp_path, 
     assert cmd[cmd.index("-map") + 1] == "0:i:0x240"
 
 
+def test_arib_extraction_compensates_for_late_first_caption_packet(tmp_path, mocker):
+    pipeline = _pipeline()
+    media = tmp_path / "broadcast.ts"
+    media.write_bytes(b"fake")
+    mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")
+    mocker.patch.object(pipeline, "_ffmpeg_has_decoder", return_value=True)
+    probe = mocker.patch("subprocess.run", return_value=mocker.Mock(
+        returncode=0,
+        stdout=json.dumps({
+            "format": {"start_time": "62662.866833"},
+            "packets": [{"pts_time": "62829.815133"}],
+        }),
+    ))
+    commands = []
+
+    def extract(cmd, **kwargs):
+        commands.append(cmd)
+        Path(cmd[-1]).write_text(
+            (Path(__file__).parent / "fixtures/arib-positioned.ass").read_text(),
+            encoding="utf-8",
+        )
+        return 0, ""
+
+    mocker.patch.object(pipeline, "_run_ffmpeg_command", side_effect=extract)
+    mocker.patch.object(pipeline, "_probe_media_duration", return_value=1.0)
+    pipeline._extract_arib_layout(
+        media, {"index": 6, "stream_id": "0x1201"}, tmp_path / "broadcast.orig.srt",
+    )
+    cmd = commands[0]
+    assert cmd[cmd.index("-output_ts_offset") + 1] == "166.948300"
+    assert probe.call_args.args[0][probe.call_args.args[0].index("-read_intervals") + 1] == "%+#1"
+
+
 def test_sparse_arib_extraction_is_rejected_as_incomplete(tmp_path, mocker):
     pipeline = _pipeline()
     mocker.patch("shutil.which", return_value="/usr/bin/ffmpeg")

@@ -1587,6 +1587,28 @@ class SubtitlePipeline:
                         break
                     time.sleep(0.5)
 
+    @staticmethod
+    def _probe_arib_output_ts_offset(ffprobe_path, media_path, subtitle_stream):
+        if not ffprobe_path or not Path(media_path).is_file():
+            return 0.0
+        cmd = [
+            ffprobe_path, "-v", "error", "-select_streams", str(subtitle_stream["index"]),
+            "-read_intervals", "%+#1", "-show_entries", "format=start_time:packet=pts_time",
+            "-of", "json", str(media_path),
+        ]
+        try:
+            completed = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=False,
+            )
+            if completed.returncode != 0:
+                return 0.0
+            payload = json.loads(completed.stdout or "{}")
+            program_start = float(payload.get("format", {}).get("start_time"))
+            first_packet = float(payload["packets"][0]["pts_time"])
+            return max(0.0, first_packet - program_start)
+        except (OSError, ValueError, TypeError, KeyError, IndexError, subprocess.SubprocessError):
+            return 0.0
+
     def _extract_arib_layout(self, media_path, subtitle_stream, output_srt,
                              progress_cb=None, language_hint=None):
         from media_subtitler.ass_layout import (
@@ -1608,13 +1630,18 @@ class SubtitlePipeline:
                 f"0:i:{subtitle_stream['stream_id']}"
                 if subtitle_stream.get("stream_id") else f"0:{subtitle_stream['index']}"
             )
+            output_ts_offset = self._probe_arib_output_ts_offset(
+                _find_media_tool("ffprobe"), media_path, subtitle_stream,
+            )
             cmd = [
                 _find_media_tool("ffmpeg"), "-y", "-nostdin", "-hide_banner",
                 "-loglevel", "error", "-fix_sub_duration", "-c:s", "libaribcaption",
                 "-analyzeduration", "200M", "-probesize", "200M", "-i", str(media_path),
                 "-map", stream_map, "-c:s", "ass",
-                "-progress", "pipe:1", str(temp_ass),
             ]
+            if output_ts_offset > 0:
+                cmd.extend(["-output_ts_offset", f"{output_ts_offset:.6f}"])
+            cmd.extend(["-progress", "pipe:1", str(temp_ass)])
             returncode, output = self._run_ffmpeg_command(
                 cmd, label="Extracting positioned ARIB subtitles", progress_cb=progress_cb,
                 timeout=self.embedded_subtitle_timeout,

@@ -1,8 +1,8 @@
 """Preserve libaribcaption ASS events and add a translation beneath each row.
 
 This deliberately handles static, positioned ARIB output, not arbitrary ASS
-typesetting. Playback uses a transparent background and mpv's default source
-font size. Unsupported geometry or insufficient space raises a clear error
+typesetting. Playback uses a translucent dark background and mpv's default
+source font size. Unsupported geometry or insufficient space raises a clear error
 instead of silently moving the Japanese captions.
 """
 
@@ -59,12 +59,12 @@ def _overlap(a, b):
     return min(a["end"], b["end"]) - max(a["start"], b["start"]) > 0.015
 
 
-def transparent_arib_background(header, style_format):
-    """Do not add a default black box behind exported Japanese captions.
+def translucent_arib_background(header, style_format):
+    """Add the broadcast's translucent dark backing to default ARIB captions.
 
-    Make FFmpeg's default box (or our previous half-transparent fallback)
-    fully transparent. Keep BorderStyle=4 and event overrides so explicitly
-    styled caption backgrounds still render. Other source styles stay intact.
+    Normalize FFmpeg's opaque default box and our previous transparent fallback
+    to 50% alpha. Keep BorderStyle=4 and event overrides so explicitly styled
+    caption backgrounds still render. Other source styles stay intact.
     """
     repaired = []
     for line in header:
@@ -72,8 +72,11 @@ def transparent_arib_background(header, style_format):
             fields = line.split(":", 1)[1].strip().split(",", len(style_format) - 1)
             style = dict(zip(style_format, fields))
             if (style.get("name") == "Default" and style.get("borderstyle") == "4"
-                    and re.fullmatch(r"&H(?:0+|7f000000)&?", style.get("backcolour", ""), re.I)):
-                fields[style_format.index("backcolour")] = "&HFF000000"
+                    and re.fullmatch(
+                        r"&H(?:0+|7f000000|ff000000)&?",
+                        style.get("backcolour", ""), re.I,
+                    )):
+                fields[style_format.index("backcolour")] = "&H80000000"
                 line = "Style: " + ",".join(fields)
         repaired.append(line)
     return repaired
@@ -98,7 +101,7 @@ def arib_playback_header(header, style_format, height):
     See mpv sub/ass_mp.c: mp_ass_set_style().
     """
     result = []
-    for line in transparent_arib_background(header, style_format):
+    for line in translucent_arib_background(header, style_format):
         if line.strip().startswith("Style:"):
             fields = line.split(":", 1)[1].strip().split(",", len(style_format) - 1)
             style = dict(zip(style_format, fields))
@@ -108,6 +111,45 @@ def arib_playback_header(header, style_format, height):
                 line = "Style: " + ",".join(fields)
         result.append(line)
     return result
+
+
+def _arib_playback_event(event, style, height):
+    """Compensate CoreText's ~0.8em advance to retain ARIB's character grid."""
+    text = event.get("text", "")
+    if not (style.get("name") == "Default" and style.get("fontname") == "sans-serif"
+            and style.get("borderstyle") == "4"
+            and re.fullmatch(r"36(?:\.0+)?", style.get("fontsize", ""))):
+        return text
+    sizes = [36.0] + [float(n) for n in re.findall(r"\\fs(" + _NUMBER + r")", text)]
+    size = sizes[-1] if len(sizes) == 2 else max(sizes)
+    display_sizes = [_arib_source_font_size(style, height)] + sizes[1:]
+    display_size = display_sizes[-1] if len(display_sizes) == 2 else max(display_sizes)
+    adjustment = size - display_size * 0.8
+
+    def compensate(match):
+        spacing = float(match.group(1)) + adjustment
+        return rf"\fsp{spacing:g}"
+
+    return re.sub(r"\\fsp(" + _NUMBER + r")", compensate, text)
+
+
+def _arib_playback_events(header, events, style_format, event_format, height):
+    styles = {}
+    for line in header:
+        if line.strip().startswith("Style:"):
+            fields = line.split(":", 1)[1].strip().split(",", len(style_format) - 1)
+            style = dict(zip(style_format, fields))
+            styles[style["name"]] = style
+    playback = []
+    for line in events:
+        if not line.startswith("Dialogue:"):
+            playback.append(line)
+            continue
+        fields = line.split(":", 1)[1].strip().split(",", len(event_format) - 1)
+        event = dict(zip(event_format, fields))
+        fields[-1] = _arib_playback_event(event, styles.get(event.get("style"), {}), height)
+        playback.append("Dialogue: " + ",".join(fields))
+    return playback
 
 
 @dataclass
@@ -172,8 +214,8 @@ class AribLayout:
             header.insert(info_index + 1, "; Media Subtitler ARIB translation v1")
             if self.stream_index is not None:
                 header.insert(info_index + 2, f"; Source stream index: {self.stream_index}")
-        # Insert the new style immediately before [Events]. Source event tags
-        # and PlayRes remain intact; only default playback styling is adjusted.
+        # Insert the new style immediately before [Events]. PlayRes and explicit
+        # event styling stay intact; default playback font spacing is compensated.
         event_index = next(i for i, line in enumerate(header) if line.strip().lower() == "[events]")
         header.insert(event_index, style)
         translated = []
@@ -190,17 +232,21 @@ class AribLayout:
             source_height = row["display_height"]
             y = row["y"] + source_height + gap
             bottom = self.height - gap
+            width = self.width - x - gap
+            target_units = _units(target)
+            full_size = min(source_height * 0.85, self.height * 24 / 540)
+            target_right = x + min(width, target_units * full_size) + 1
             for box in self.boxes:
                 # Ruby annotations are excluded from rows; do not let these
                 # small glyphs block translation placement either.
                 if box.get("ruby") or not _overlap(row, box):
                     continue
+                if box["x"] >= target_right or box["x"] + box["width"] <= x - 1:
+                    continue
                 if box["y"] >= row["y"] + source_height - 0.1:
                     bottom = min(bottom, box["y"] - 2)
             room = bottom - y - 2  # reserve the translation outline
-            width = self.width - x - gap
-            size = min(source_height * 0.85, self.height * 24 / 540,
-                       room, width / max(1, _units(target) + 2))
+            size = min(full_size, room, width / max(1, target_units + 2))
             minimum = min(row["height"] * 0.3, self.height / 54)
             if size < minimum or width <= 0:
                 raise LayoutError(
@@ -216,8 +262,11 @@ class AribLayout:
             translated.append("Dialogue: " + ",".join(fields.get(k, "") for k in self.event_format))
         # Compute every placement before opening the destination, so a layout
         # error cannot leave a half-written bilingual file.
+        source_events = _arib_playback_events(
+            self.header, self.events, self.style_format, self.event_format, self.height,
+        ) if include_source else []
         Path(output_path).write_text(
-            "\n".join(header + (self.events if include_source else []) + translated) + "\n",
+            "\n".join(header + source_events + translated) + "\n",
             encoding="utf-8-sig",
         )
 

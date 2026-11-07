@@ -20,6 +20,18 @@ def event(text, x=118, y=389, start="0:00:01.00", end="0:00:04.00", tags=""):
     return f"Dialogue: 0,{start},{end},Default,,0,0,0,," + rf"{{\an7}}{{\pos({x},{y})}}{{\fsp4}}{{\bord3}}" + tags + text
 
 
+def playback_event(line, height=540):
+    sizes = [float(n) for n in re.findall(r"\\fs([\d.]+)", line)]
+    size = sizes[-1] if sizes else 36.0
+    display_size = size if sizes else 38 * height / 720
+    adjustment = size - display_size * 0.8
+    return re.sub(
+        r"\\fsp([\d.]+)",
+        lambda match: rf"\fsp{float(match.group(1)) + adjustment:g}",
+        line,
+    )
+
+
 def layout_for(tmp_path, events, height=540):
     p = tmp_path / "test.orig.ass"
     p.write_text(HEADER.replace("PlayResY: 540", f"PlayResY: {height}") + "\n".join(events) + "\n")
@@ -52,7 +64,7 @@ def test_preserves_source_events_and_places_chinese_between_rows(tmp_path):
     layout.write(translations(layout, ["为什么", "绝对不行。"]), out, "PingFang SC")
     text = out.read_text(encoding="utf-8-sig")
     for source in originals:
-        assert source in text
+        assert playback_event(source) in text
     assert "PlayResX: 960" in text and "Style: Default,sans-serif,28.5," in text
     assert r"\pos(118,420.5)" in text
     assert r"\pos(158,480.5)" in text
@@ -74,7 +86,10 @@ def test_ruby_preserved_without_duplicate_translation_and_color_runs_joined(tmp_
     assert [s["text"] for s in layout.segments()] == ["名前です"]
     out = tmp_path / "bilingual.ass"
     layout.write(translations(layout, ["是名字。"]), out, "PingFang SC")
-    assert ruby in out.read_text(encoding="utf-8-sig")
+    text = out.read_text(encoding="utf-8-sig")
+    assert playback_event(ruby) in text
+    assert r"{\fs18}なまえ" in text and r"\fsp7.6" in text
+    assert all(playback_event(source) in text for source in originals[1:])
 
 
 def test_literal_angle_brackets_and_repeated_broadcast_rows_are_retained(tmp_path):
@@ -107,6 +122,24 @@ def test_no_room_fails_without_overwriting_existing_output(tmp_path):
     assert out.read_text() == "existing output"
 
 
+def test_side_by_side_caption_does_not_block_translation(tmp_path):
+    originals = [
+        event("あんな男の面倒を見るいわれは", x=170, y=359, start="0:26:39.00", end="0:26:42.00"),
+        event("ないんだからね ねっ？", x=190, y=419, start="0:26:39.00", end="0:26:42.00"),
+        event("母さん…", x=630, y=449, start="0:26:39.00", end="0:26:42.00"),
+    ]
+    layout = layout_for(tmp_path, originals)
+    out = tmp_path / "bilingual.ass"
+    layout.write(
+        translations(layout, ["我又没理由照顾那种男人", "又不是没有嘛，对吧？", "妈妈……"]),
+        out,
+        "PingFang SC",
+    )
+    text = out.read_text(encoding="utf-8-sig")
+    assert r"\pos(190,450.5)\fs24.00\q2}又不是没有嘛，对吧？" in text
+    assert all(playback_event(line) in text for line in originals)
+
+
 def test_ruby_between_rows_does_not_block_translation(tmp_path):
     # オバベン 2026-09-20 failure at 6175.69s: a small ruby glyph sits above
     # the next caption row, inside the gap where the translation goes.
@@ -120,7 +153,23 @@ def test_ruby_between_rows_does_not_block_translation(tmp_path):
     out = tmp_path / "bilingual.ass"
     layout.write(translations(layout, ["给恋人", "我什么都能买给你。"]), out, "PingFang SC")
     text = out.read_text(encoding="utf-8-sig")
-    assert "给恋人" in text and all(line in text for line in originals)
+    assert "给恋人" in text and all(playback_event(line) in text for line in originals)
+
+
+def test_ruby_spacing_preserves_arib_character_grid(tmp_path):
+    originals = [
+        event("とう", x=450, y=359, tags=r"{\fs18}{\fsp2}"),
+        event("よっしゃ お義父さんのために", x=210, y=389),
+        event("歌でも歌おうかな", x=230, y=449),
+    ]
+    layout = layout_for(tmp_path, originals)
+    out = tmp_path / "bilingual.ass"
+    layout.write(translations(layout, ["好嘞，为了岳父", "唱首歌吧"]), out, "PingFang SC")
+    text = out.read_text(encoding="utf-8-sig")
+    assert layout.events == originals
+    assert r"\pos(450,359)}{\fsp7.6}{\bord3}{\fs18}{\fsp5.6}とう" in text
+    assert text.count(r"\fsp17.2") == 2
+    assert all(playback_event(line) in text for line in originals)
 
 
 @pytest.mark.parametrize("bad", [
@@ -190,13 +239,13 @@ def test_arib_display_canvas_prevents_anamorphic_video_stretch(tmp_path, include
     assert "PlayResX: 960" in text and "PlayResY: 540" in text
     assert layout.header == original_header
     assert r"\pos(118,420.5)" in text
-    assert (layout.events[0] in text) == include_source
+    assert (playback_event(layout.events[0]) in text) == include_source
 
 
-@pytest.mark.parametrize("backcolour", ["&H0", "&H00000000", "&H7F000000"])
-def test_background_default_is_transparent_and_explicit_alphas_survive(tmp_path, backcolour):
+@pytest.mark.parametrize("backcolour", ["&H0", "&H00000000", "&H7F000000", "&HFF000000"])
+def test_background_default_is_translucent_and_explicit_alphas_survive(tmp_path, backcolour):
     originals = [
-        event("背景なし"),
+        event("標準背景"),
         event("不透明", x=158, y=449, tags=r"{\4a&H00&}"),
         event("透明", start="0:00:05.00", end="0:00:06.00", tags=r"{\4a&Hff&}"),
     ]
@@ -204,11 +253,11 @@ def test_background_default_is_transparent_and_explicit_alphas_survive(tmp_path,
     layout.header = [line.replace(",&H0,&H0,", f",&H0,{backcolour},") for line in layout.header]
     original_header = list(layout.header)
     out = tmp_path / "bilingual.ass"
-    layout.write(translations(layout, ["没有背景", "不透明背景", "透明背景"]), out, "PingFang SC")
+    layout.write(translations(layout, ["标准背景", "不透明背景", "透明背景"]), out, "PingFang SC")
     text = out.read_text(encoding="utf-8-sig")
     source_style = next(line for line in text.splitlines() if line.startswith("Style: Default,"))
-    assert source_style.split(",")[6] == "&HFF000000"
-    assert all(line in text for line in originals)
+    assert source_style.split(",")[6] == "&H80000000"
+    assert all(playback_event(line) in text for line in originals)
     assert layout.header == original_header
     translated_style = next(line for line in text.splitlines() if line.startswith("Style: AribTranslation,"))
     assert translated_style.split(",")[6] == "&H00000000"
@@ -216,21 +265,20 @@ def test_background_default_is_transparent_and_explicit_alphas_survive(tmp_path,
 
 
 @pytest.mark.parametrize("name,backcolour,borderstyle", [
-    ("Default", "&HFF000000", "4"),
     ("Default", "&H40000000", "4"),
     ("Default", "&H000000FF", "4"),
     ("Default", "&H0", "1"),
     ("Custom", "&H0", "4"),
 ])
-def test_transparent_background_preserves_other_style_settings(name, backcolour, borderstyle):
-    from media_subtitler.ass_layout import transparent_arib_background
+def test_translucent_background_preserves_other_style_settings(name, backcolour, borderstyle):
+    from media_subtitler.ass_layout import translucent_arib_background
     fmt = ["name", "backcolour", "borderstyle"]
     header = [f"Style: {name},{backcolour},{borderstyle}"]
-    assert transparent_arib_background(header, fmt) == header
+    assert translucent_arib_background(header, fmt) == header
 
 
 @pytest.mark.parametrize("height,expected_size", [(540, 28.5), (480, 38 * 480 / 720)])
-def test_source_font_matches_embedded_mpv_size_without_changing_events(tmp_path, height, expected_size):
+def test_source_font_matches_embedded_mpv_size_with_grid_spacing(tmp_path, height, expected_size):
     originals = [event("なまえ", y=359, tags=r"{\fs18}"), event("名前")]
     layout = layout_for(tmp_path, originals, height=height)
     original_header = list(layout.header)
@@ -239,8 +287,8 @@ def test_source_font_matches_embedded_mpv_size_without_changing_events(tmp_path,
     lines = out.read_text(encoding="utf-8-sig").splitlines()
     source = next(line for line in lines if line.startswith("Style: Default,"))
     assert float(source.split(",")[2]) == pytest.approx(expected_size, abs=0.0001)
-    assert source.split(",")[6] == "&HFF000000"
-    assert all(line in lines for line in originals)
+    assert source.split(",")[6] == "&H80000000"
+    assert all(playback_event(line, height) in lines for line in originals)
     assert layout.header == original_header
     translation = next(line for line in lines if line.startswith("Dialogue: 1,"))
     expected_y = 389 + expected_size + max(2, height / 180)
@@ -260,5 +308,5 @@ def test_source_font_adjustment_is_idempotent_and_preserves_custom_styles(tmp_pa
         assert any(line.startswith("Style: " + style) for line in result)
     out = tmp_path / "bilingual.ass"
     layout.write(translations(layout, ["是的"]), out, "PingFang SC")
-    assert layout.events[0] in out.read_text(encoding="utf-8-sig")
+    assert playback_event(layout.events[0]) in out.read_text(encoding="utf-8-sig")
     assert r"\pos(118,434)\fs24.00" in out.read_text(encoding="utf-8-sig")
