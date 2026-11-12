@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "media_subtitler"
 version = "0.1.0"
-description = "Whisper-based bilingual subtitle pipeline for Japanese/Korean media."
+description = "ASR-based bilingual subtitle pipeline for Japanese/Korean media."
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }

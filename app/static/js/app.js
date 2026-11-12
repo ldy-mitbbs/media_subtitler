@@ -38,6 +38,8 @@
   const settingDeepseekApiKey = document.getElementById('setting-deepseek-api-key');
   const settingWhisperBackend = document.getElementById('setting-whisper-backend');
   const settingWhisperModel = document.getElementById('setting-whisper-model');
+  const settingQwenAsrForcedAligner = document.getElementById('setting-qwen-asr-forced-aligner');
+  const settingQwenAsrChunkSeconds = document.getElementById('setting-qwen-asr-chunk-seconds');
   const settingWhisperCppModelPath = document.getElementById('setting-whisper-cpp-model-path');
   const settingTranslationBackend = document.getElementById('setting-translation-backend');
   const settingTranslationModel = document.getElementById('setting-translation-model');
@@ -214,6 +216,8 @@
       const savedAsrModel = s.asr_model || s.whisper_model || '';
       if (settingWhisperBackend) settingWhisperBackend.value = savedAsrBackend;
       if (settingWhisperModel) settingWhisperModel.value = savedAsrModel;
+      if (settingQwenAsrForcedAligner) settingQwenAsrForcedAligner.value = s.qwen_asr_forced_aligner ?? 'Qwen/Qwen3-ForcedAligner-0.6B';
+      if (settingQwenAsrChunkSeconds) settingQwenAsrChunkSeconds.value = s.qwen_asr_chunk_seconds || 90;
       if (settingWhisperCppModelPath) settingWhisperCppModelPath.value = s.whisper_cpp_model_path || '';
       if (settingTranslationBackend) settingTranslationBackend.value = s.translation_backend || '';
       if (settingTranslationModel) settingTranslationModel.value = s.translation_model || '';
@@ -264,6 +268,8 @@
         DEEPSEEK_API_KEY: settingDeepseekApiKey ? settingDeepseekApiKey.value.trim() : '',
         ASR_BACKEND: settingWhisperBackend ? settingWhisperBackend.value.trim() : '',
         ASR_MODEL: settingWhisperModel ? settingWhisperModel.value.trim() : '',
+        QWEN_ASR_FORCED_ALIGNER: settingQwenAsrForcedAligner ? settingQwenAsrForcedAligner.value.trim() : '',
+        QWEN_ASR_CHUNK_SECONDS: settingQwenAsrChunkSeconds ? settingQwenAsrChunkSeconds.value : 90,
         WHISPER_CPP_MODEL_PATH: settingWhisperCppModelPath ? settingWhisperCppModelPath.value.trim() : '',
         TRANSLATION_BACKEND: settingTranslationBackend ? settingTranslationBackend.value.trim() : '',
         TRANSLATION_MODEL: settingTranslationModel ? settingTranslationModel.value.trim() : '',

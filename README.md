@@ -165,7 +165,7 @@ ASR_BACKEND=qwen3-asr
 ASR_MODEL=Qwen/Qwen3-ASR-1.7B
 ```
 
-Qwen3-ASR 速度较快，但当前时间轴是按分句近似生成；如果视频本身有内嵌字幕，程序仍会优先提取内嵌字幕。
+默认同时加载 `Qwen/Qwen3-ForcedAligner-0.6B`，把识别出的日文字符对齐到真实时间轴；设置 `QWEN_ASR_FORCED_ALIGNER=none` 可禁用对齐，此时时间轴按分句近似生成。首次运行会自动下载 ASR 和对齐模型。如果视频本身有内嵌字幕，程序仍会优先提取内嵌字幕。
 
 如果本机 GPU 语音转文字报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装运行时。
 

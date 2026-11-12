@@ -92,7 +92,7 @@
                 <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
                 <option value="faster-whisper">本地 faster-whisper</option>
                 <option value="whispercpp">本地 whisper.cpp</option>
-                <option value="qwen3-asr">本地 Qwen3-ASR</option>
+                <option value="qwen3-asr">本地 Qwen3-ASR（含时间戳对齐）</option>
                 <option value="openai">OpenAI Whisper API</option>
                 <option value="openrouter">OpenRouter ASR API</option>
               </select>
@@ -100,6 +100,16 @@
             <div class="settings-field">
               <label for="setting-whisper-model">默认语音识别模型</label>
               <input id="setting-whisper-model" type="text" placeholder="large-v3 或 Qwen/Qwen3-ASR-1.7B">
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-field">
+              <label for="setting-qwen-asr-forced-aligner">Qwen 时间戳对齐模型（留空则估算时间）</label>
+              <input id="setting-qwen-asr-forced-aligner" type="text" placeholder="Qwen/Qwen3-ForcedAligner-0.6B">
+            </div>
+            <div class="settings-field">
+              <label for="setting-qwen-asr-chunk-seconds">Qwen 分段秒数</label>
+              <input id="setting-qwen-asr-chunk-seconds" type="number" min="15" max="300" placeholder="90">
             </div>
           </div>
           <div class="settings-row">

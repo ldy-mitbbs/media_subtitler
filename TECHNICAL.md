@@ -67,7 +67,7 @@ shell 环境变量 > .env.local > .env > 代码默认值
 
 主要配置分组：
 
-- **Whisper**: `WHISPER_BACKEND`, `WHISPER_MODEL`, `WHISPER_CPP_MODEL_PATH` 等
+- **ASR**: `ASR_BACKEND`, `ASR_MODEL`, `ASR_DEVICE`、`QWEN_ASR_FORCED_ALIGNER` 等（兼容旧的 `WHISPER_*` 名称）
 - **翻译后端**: `TRANSLATION_BACKEND`（`ollama` / `lmstudio` / `openrouter` / `deepseek`）
 - **目标语言**: `TARGET_LANGUAGE`（默认 `zh`）
 - **媒体目录**: `MEDIA_DIR`（CLI 相对路径解析使用；Web UI 直接处理本地绝对路径）
@@ -80,19 +80,20 @@ shell 环境变量 > .env.local > .env > 代码默认值
 
 ```python
 def process(self, media_path, ...):
-    # 1. 语音识别 (Whisper) → .orig.srt
+    # 1. 字幕提取或语音识别 (ASR) → .orig.srt
     # 2. 翻译 (LLM) → .bilingual.srt
     # 3. 返回结果字典
 ```
 
 **阶段 1：字幕提取或语音识别**
 
-优先提取内嵌字幕。ARIB 轨为空，或最后一条文字在视频后半段开始之前就结束时，视为无法覆盖整段录像并回退到 Whisper；其他提取错误仍明确报错。
+优先提取内嵌字幕。ARIB 轨为空，或最后一条文字在视频后半段开始之前就结束时，视为无法覆盖整段录像并回退到 ASR；其他提取错误仍明确报错。
 
-根据 `WHISPER_BACKEND` 分发到两个后端：
+根据 `ASR_BACKEND`（兼容 `WHISPER_BACKEND`）分发到对应后端：
 
 - **`_transcribe_with_faster_whisper()`**: 调用 `faster-whisper` Python 库。支持 `language_hint` 参数，会自动探测语言并返回 `(segments, detected_language)`。
 - **`_transcribe_with_whispercpp()`**: 调用外部 `whisper-cli` 命令行工具。先用 `ffmpeg` 提取 16kHz mono WAV，再执行 whisper.cpp。解析其 JSON 输出生成 segments。
+- **`_transcribe_with_qwen3_asr()`**: 调用 `qwen-asr`，默认使用 `Qwen3-ASR-1.7B` 和 `Qwen3-ForcedAligner-0.6B`，将对齐后的字/词时间戳合并为字幕 cues；禁用对齐模型时按分句估算时间。
 
 **关键处理：编码回退与 mojibake 修复**
 

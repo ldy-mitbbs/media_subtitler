@@ -64,6 +64,7 @@ def _seed_settings_from_env():
         "ASR_DEVICE",
         "ASR_COMPUTE_TYPE",
         "QWEN_ASR_CHUNK_SECONDS",
+        "QWEN_ASR_FORCED_ALIGNER",
         "WHISPER_BACKEND",
         "WHISPER_MODEL",
         "WHISPER_DEVICE",
@@ -202,6 +203,9 @@ class Config:
         _get_nonempty_setting(SETTINGS, "WHISPER_COMPUTE_TYPE", _default_compute_type()),
     )
     QWEN_ASR_CHUNK_SECONDS = _get_setting_int(SETTINGS, "QWEN_ASR_CHUNK_SECONDS", 90)
+    QWEN_ASR_FORCED_ALIGNER = _get_setting(
+        SETTINGS, "QWEN_ASR_FORCED_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"
+    )
     # Backward-compatible aliases for older code and existing settings.
     WHISPER_BACKEND = ASR_BACKEND
     WHISPER_MODEL = ASR_MODEL

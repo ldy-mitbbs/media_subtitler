@@ -482,6 +482,7 @@ def get_config():
                 "compute_type": cfg.get("ASR_COMPUTE_TYPE", cfg.get("WHISPER_COMPUTE_TYPE")),
                 "remote_base_url": cfg.get("REMOTE_WHISPER_BASE_URL"),
                 "qwen_chunk_seconds": cfg.get("QWEN_ASR_CHUNK_SECONDS", 90),
+                "qwen_forced_aligner": cfg.get("QWEN_ASR_FORCED_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"),
             },
             "whisper": {
                 "backend": cfg.get("ASR_BACKEND", cfg.get("WHISPER_BACKEND")),
@@ -521,6 +522,7 @@ def get_settings():
             "asr_backend": cfg.get("ASR_BACKEND", cfg.get("WHISPER_BACKEND", "")),
             "asr_model": cfg.get("ASR_MODEL", cfg.get("WHISPER_MODEL", "")),
             "qwen_asr_chunk_seconds": cfg.get("QWEN_ASR_CHUNK_SECONDS", 90),
+            "qwen_asr_forced_aligner": cfg.get("QWEN_ASR_FORCED_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"),
             "whisper_backend": cfg.get("ASR_BACKEND", cfg.get("WHISPER_BACKEND", "")),
             "whisper_model": cfg.get("ASR_MODEL", cfg.get("WHISPER_MODEL", "")),
             "whisper_cpp_model_path": cfg.get("WHISPER_CPP_MODEL_PATH", ""),
@@ -551,6 +553,7 @@ def update_settings():
         "ASR_BACKEND",
         "ASR_MODEL",
         "QWEN_ASR_CHUNK_SECONDS",
+        "QWEN_ASR_FORCED_ALIGNER",
         "WHISPER_BACKEND",
         "WHISPER_MODEL",
         "WHISPER_CPP_MODEL_PATH",

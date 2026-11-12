@@ -947,8 +947,46 @@ def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
 
     assert result["source_language"] == "Japanese"
     assert result["asr_backend"] == "qwen3-asr"
+    assert result["transcript_source"] == "qwen3-asr"
     assert Path(result["original_srt"]).read_text(encoding="utf-8").count("こんにちは") == 1
     from_pretrained.assert_called_once()
+    assert from_pretrained.call_args.kwargs["forced_aligner"] == "Qwen/Qwen3-ForcedAligner-0.6B"
+
+
+def test_qwen3_asr_uses_forced_alignment_for_subtitle_cues():
+    class Item:
+        def __init__(self, text, start_time, end_time):
+            self.text = text
+            self.start_time = start_time
+            self.end_time = end_time
+
+    class Alignment:
+        items = [
+            Item("こんにちは", 0.5, 1.4),
+            Item("。", 1.4, 1.5),
+            Item("ありがとう", 2.0, 3.2),
+            Item("。", 3.2, 3.3),
+        ]
+
+    segments = SubtitlePipeline._segments_from_qwen_timestamps(Alignment(), offset=90.0)
+
+    assert segments == [
+        {"start": 90.5, "end": 91.5, "text": "こんにちは。"},
+        {"start": 92.0, "end": 93.3, "text": "ありがとう。"},
+    ]
+
+
+def test_qwen3_asr_auto_language_uses_model_detection():
+    assert SubtitlePipeline._qwen_language_name("auto") is None
+    assert SubtitlePipeline._qwen_language_name("ja") == "Japanese"
+
+
+def test_qwen3_asr_aligner_can_be_disabled():
+    pipeline = _pipeline(
+        ASR_BACKEND="qwen3-asr",
+        QWEN_ASR_FORCED_ALIGNER="none",
+    )
+    assert pipeline.qwen_asr_forced_aligner is None
 
 
 def test_start_translation_resumes_with_overrides(tmp_path, mocker):

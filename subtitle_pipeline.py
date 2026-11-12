@@ -45,6 +45,7 @@ def build_config(overrides):
         "ASR_DEVICE": Config.ASR_DEVICE,
         "ASR_COMPUTE_TYPE": Config.ASR_COMPUTE_TYPE,
         "QWEN_ASR_CHUNK_SECONDS": Config.QWEN_ASR_CHUNK_SECONDS,
+        "QWEN_ASR_FORCED_ALIGNER": Config.QWEN_ASR_FORCED_ALIGNER,
         "WHISPER_CPP_COMMAND": Config.WHISPER_CPP_COMMAND,
         "WHISPER_CPP_MODEL_PATH": Config.WHISPER_CPP_MODEL_PATH,
         "WHISPER_CPP_THREADS": Config.WHISPER_CPP_THREADS,
@@ -114,6 +115,7 @@ def main():
     parser.add_argument("--asr-device", help="ASR device (auto/cpu/cuda)")
     parser.add_argument("--asr-compute-type", help="ASR compute type")
     parser.add_argument("--qwen-asr-chunk-seconds", type=int, help="Qwen3-ASR audio chunk length")
+    parser.add_argument("--qwen-asr-forced-aligner", help="Qwen3 forced-aligner model; pass an empty string for approximate timings")
     parser.add_argument("--whisper-backend", help=argparse.SUPPRESS)
     parser.add_argument("--whisper-model", help=argparse.SUPPRESS)
     parser.add_argument("--whisper-device", help=argparse.SUPPRESS)
@@ -153,6 +155,7 @@ def main():
         "ASR_DEVICE": args.asr_device or args.whisper_device,
         "ASR_COMPUTE_TYPE": args.asr_compute_type or args.whisper_compute_type,
         "QWEN_ASR_CHUNK_SECONDS": args.qwen_asr_chunk_seconds,
+        "QWEN_ASR_FORCED_ALIGNER": args.qwen_asr_forced_aligner,
         "WHISPER_CPP_COMMAND": args.whispercpp_command,
         "WHISPER_CPP_MODEL_PATH": args.whispercpp_model_path,
         "WHISPER_CPP_THREADS": args.whispercpp_threads,

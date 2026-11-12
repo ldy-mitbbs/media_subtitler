@@ -747,6 +747,11 @@ class SubtitlePipeline:
             else "Qwen/Qwen3-ASR-1.7B"
         )
         self.qwen_asr_chunk_seconds = int(config.get("QWEN_ASR_CHUNK_SECONDS", 90) or 90)
+        self.qwen_asr_forced_aligner = config.get(
+            "QWEN_ASR_FORCED_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"
+        ) or None
+        if str(self.qwen_asr_forced_aligner).lower() in {"none", "off", "disabled"}:
+            self.qwen_asr_forced_aligner = None
         self.gpu_base_url = str(config.get("GPU_BASE_URL", "") or "").rstrip("/").rstrip(":")
         self.remote_whisper_base_url = (
             str(config.get("REMOTE_WHISPER_BASE_URL", "") or "").rstrip("/")
@@ -962,7 +967,7 @@ class SubtitlePipeline:
                 if not segments:
                     raise RuntimeError("No speech segments detected")
 
-                transcript_source = "whisper"
+                transcript_source = "qwen3-asr" if backend == "qwen3-asr" else "whisper"
                 write_srt(segments, original_srt)
 
         normalized_lang = (source_language or "unknown").strip().lower()
@@ -1191,15 +1196,21 @@ class SubtitlePipeline:
             if progress_cb:
                 progress_cb(10, f"Loading Qwen3-ASR model ({self.qwen_asr_model_name})")
 
+            device = self._qwen_asr_device()
+            dtype = self._qwen_asr_dtype(device)
             model_kwargs = {
                 "max_inference_batch_size": 1,
                 "max_new_tokens": 4096,
+                "dtype": dtype,
             }
-            device = self._qwen_asr_device()
             if device:
                 model_kwargs["device_map"] = device
-            if torch is not None:
-                model_kwargs["dtype"] = torch.float16 if device == "mps" else torch.float32
+            if self.qwen_asr_forced_aligner:
+                model_kwargs["forced_aligner"] = self.qwen_asr_forced_aligner
+                model_kwargs["forced_aligner_kwargs"] = {
+                    "dtype": dtype,
+                    **({"device_map": device} if device else {}),
+                }
 
             model = Qwen3ASRModel.from_pretrained(self.qwen_asr_model_name, **model_kwargs)
             qwen_language = self._qwen_language_name(language_hint)
@@ -1216,10 +1227,16 @@ class SubtitlePipeline:
                     audio=str(chunk_path),
                     language=qwen_language,
                     context=context,
+                    return_time_stamps=bool(self.qwen_asr_forced_aligner),
                 )[0]
                 source_language = getattr(result, "language", source_language) or source_language
                 text = str(getattr(result, "text", "") or "").strip()
-                segments.extend(self._segments_from_qwen_text(text, start, end))
+                aligned = self._segments_from_qwen_timestamps(
+                    getattr(result, "time_stamps", None), start
+                )
+                segments.extend(
+                    aligned or self._segments_from_qwen_text(text, start, end)
+                )
 
         segments = self._repair_mojibake_segments(segments)
         segments = _dedupe_repeated_segments(segments)
@@ -1230,7 +1247,7 @@ class SubtitlePipeline:
 
     @staticmethod
     def _qwen_language_name(language_hint):
-        if not language_hint:
+        if not language_hint or str(language_hint).strip().lower() == "auto":
             return None
         code = str(language_hint).strip().lower()
         return {
@@ -1244,18 +1261,81 @@ class SubtitlePipeline:
             "en": "English",
         }.get(code, language_display_name(code) or None)
 
-    @staticmethod
-    def _qwen_asr_device():
+    def _qwen_asr_device(self):
+        requested = str(self.asr_device or "auto").strip().lower()
+        if requested != "auto":
+            return requested
         if torch is None:
             return None
         try:
-            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-                return "mps"
             if torch.cuda.is_available():
                 return "cuda"
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                return "mps"
         except Exception:
             return None
         return None
+
+    def _qwen_asr_dtype(self, device):
+        requested = str(self.asr_compute_type or "auto").strip().lower()
+        explicit = {
+            "float16": torch.float16,
+            "fp16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "bf16": torch.bfloat16,
+            "float32": torch.float32,
+            "fp32": torch.float32,
+        }.get(requested)
+        if explicit is not None:
+            return explicit
+        if device and device.startswith("cuda"):
+            return torch.bfloat16
+        if device == "mps":
+            return torch.float16
+        return torch.float32
+
+    @staticmethod
+    def _segments_from_qwen_timestamps(time_stamps, offset=0.0):
+        if not time_stamps:
+            return []
+        raw_items = getattr(time_stamps, "items", time_stamps)
+        items = []
+        for item in raw_items:
+            get = item.get if isinstance(item, dict) else lambda key: getattr(item, key)
+            text = str(get("text") or "")
+            try:
+                start = float(get("start_time"))
+                end = float(get("end_time"))
+            except (TypeError, ValueError):
+                continue
+            if text:
+                items.append((text, start, end))
+
+        segments = []
+        group = []
+
+        def flush():
+            if not group:
+                return
+            text = re.sub(r"\s+", " ", "".join(item[0] for item in group)).strip()
+            if text:
+                start = offset + group[0][1]
+                end = max(start + 0.2, offset + group[-1][2])
+                segments.append({"start": start, "end": end, "text": text})
+            group.clear()
+
+        for item in items:
+            if group:
+                current_text = "".join(part[0] for part in group)
+                elapsed = item[2] - group[0][1]
+                pause = item[1] - group[-1][2]
+                if pause >= 0.8 or elapsed > 8.0 or len(current_text) + len(item[0]) > 60:
+                    flush()
+            group.append(item)
+            if re.search(r"[。！？!?][\"'）】]*$", "".join(part[0] for part in group)):
+                flush()
+        flush()
+        return segments
 
     @staticmethod
     def _qwen_asr_context(media_path):
