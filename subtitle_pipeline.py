@@ -110,12 +110,12 @@ def main():
         "--source-language",
         help="Force source language (e.g. ja, ko). Default: auto-detect.",
     )
-    parser.add_argument("--asr-backend", help="ASR backend (auto/faster-whisper/remote-faster-whisper/whispercpp/openai/qwen3-asr/openrouter)")
+    parser.add_argument("--asr-backend", help="ASR backend (auto/faster-whisper/remote-faster-whisper/whispercpp/openai/qwen3-asr/mlx-qwen3-asr/openrouter)")
     parser.add_argument("--asr-model", help="ASR model name")
     parser.add_argument("--asr-device", help="ASR device (auto/cpu/cuda)")
     parser.add_argument("--asr-compute-type", help="ASR compute type")
-    parser.add_argument("--qwen-asr-chunk-seconds", type=int, help="Qwen3-ASR audio chunk length")
-    parser.add_argument("--qwen-asr-forced-aligner", help="Qwen3 forced-aligner model; pass an empty string for approximate timings")
+    parser.add_argument("--qwen-asr-chunk-seconds", type=int, help="OpenRouter audio chunk length; local Qwen uses native chunking")
+    parser.add_argument("--qwen-asr-forced-aligner", help="Qwen3 forced-aligner model (required for local Qwen subtitles)")
     parser.add_argument("--whisper-backend", help=argparse.SUPPRESS)
     parser.add_argument("--whisper-model", help=argparse.SUPPRESS)
     parser.add_argument("--whisper-device", help=argparse.SUPPRESS)

@@ -92,6 +92,7 @@
                 <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
                 <option value="faster-whisper">本地 faster-whisper</option>
                 <option value="whispercpp">本地 whisper.cpp</option>
+                <option value="mlx-qwen3-asr">MLX Qwen3-ASR-1.7B（Apple Silicon）</option>
                 <option value="qwen3-asr">本地 Qwen3-ASR（含时间戳对齐）</option>
                 <option value="openai">OpenAI Whisper API</option>
                 <option value="openrouter">OpenRouter ASR API</option>
@@ -108,7 +109,7 @@
               <input id="setting-qwen-asr-forced-aligner" type="text" placeholder="Qwen/Qwen3-ForcedAligner-0.6B">
             </div>
             <div class="settings-field">
-              <label for="setting-qwen-asr-chunk-seconds">Qwen 分段秒数</label>
+              <label for="setting-qwen-asr-chunk-seconds">OpenRouter 分段秒数（本机 Qwen 自动分段）</label>
               <input id="setting-qwen-asr-chunk-seconds" type="number" min="15" max="300" placeholder="90">
             </div>
           </div>
@@ -215,7 +216,8 @@
         <option value="remote-faster-whisper">远程 GPU faster-whisper</option>
         <option value="faster-whisper">本地 faster-whisper</option>
         <option value="whispercpp">本地 whisper.cpp</option>
-        <option value="qwen3-asr">本地 Qwen3-ASR</option>
+        <option value="mlx-qwen3-asr">MLX Qwen3-ASR-1.7B（Apple Silicon）</option>
+                <option value="qwen3-asr">本地 Qwen3-ASR</option>
         <option value="openai">OpenAI Whisper API</option>
         <option value="openrouter">OpenRouter ASR API</option>
       </select>

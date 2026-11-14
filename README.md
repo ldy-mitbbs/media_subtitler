@@ -165,7 +165,7 @@ ASR_BACKEND=qwen3-asr
 ASR_MODEL=Qwen/Qwen3-ASR-1.7B
 ```
 
-默认同时加载 `Qwen/Qwen3-ForcedAligner-0.6B`，把识别出的日文字符对齐到真实时间轴；设置 `QWEN_ASR_FORCED_ALIGNER=none` 可禁用对齐，此时时间轴按分句近似生成。首次运行会自动下载 ASR 和对齐模型。如果视频本身有内嵌字幕，程序仍会优先提取内嵌字幕。
+默认同时加载 `Qwen/Qwen3-ForcedAligner-0.6B`，把识别出的日文字符对齐到真实时间轴；字幕生成必须启用对齐，对齐失败会明确报错，不会生成估算时间轴。首次运行会自动下载 ASR 和对齐模型。如果视频本身有内嵌字幕，程序仍会优先提取内嵌字幕。
 
 如果本机 GPU 语音转文字报 `cublas64_12.dll` / `cudnn*.dll` 找不到，通常是 CUDA/cuDNN runtime 没在 Windows `PATH` 里。先确认 NVIDIA 驱动正常，再按 NVIDIA cuDNN Windows 文档安装运行时。
 
@@ -394,3 +394,21 @@ media_subtitler/
 MIT — 详见 [LICENSE](LICENSE)。
 
 欢迎提交 PR，提交前请运行 `pytest -v` 确保测试通过。
+
+
+### Apple Silicon: MLX Qwen3-ASR
+
+```bash
+pip install '.[mlx-qwen-asr]'
+ASR_BACKEND=mlx-qwen3-asr
+ASR_MODEL=Qwen/Qwen3-ASR-1.7B
+```
+
+This backend explicitly uses the 1.7B model, native MLX forced alignment, and
+approximately 30-second low-energy chunks. A serial worker owns reusable models;
+no raw filename is injected into the recognition prompt. Truncated output or
+missing alignment is an error. The PyTorch Qwen backend also uses its library's
+native low-energy chunking and requires alignment. `QWEN_ASR_CHUNK_SECONDS` is
+retained for OpenRouter; it no longer controls local Qwen chunking.
+`AUDIO_STREAM_INDEX` optionally selects an absolute ffmpeg stream index for Qwen
+(the mpv integration supplies the selected audio track's `ff-index`).

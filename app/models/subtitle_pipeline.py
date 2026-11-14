@@ -4,6 +4,7 @@ Produces bilingual SRT files: original transcript + translated line per cue.
 Prompts are tuned for natural spoken dialogue rather than generic copy.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import functools
 import html
 import json
@@ -34,6 +35,11 @@ try:
 except ImportError:  # pragma: no cover - optional dep
     torch = None
     Qwen3ASRModel = None
+
+
+# Keep Metal model creation and inference on the same thread across Flask jobs.
+_QWEN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="qwen-asr")
+_QWEN_MODELS = {}  # bounded to the last backend/model configuration
 
 
 # Languages supported by Whisper (and broadly available in modern translation
@@ -746,6 +752,9 @@ class SubtitlePipeline:
             if str(self.asr_model_name).startswith("Qwen/")
             else "Qwen/Qwen3-ASR-1.7B"
         )
+        self.audio_stream_index = config.get("AUDIO_STREAM_INDEX")
+        if self.asr_backend in {"qwen3-asr", "mlx-qwen3-asr"}:
+            self.asr_model_name = self.whisper_model_name = self.qwen_asr_model_name
         self.qwen_asr_chunk_seconds = int(config.get("QWEN_ASR_CHUNK_SECONDS", 90) or 90)
         self.qwen_asr_forced_aligner = config.get(
             "QWEN_ASR_FORCED_ALIGNER", "Qwen/Qwen3-ForcedAligner-0.6B"
@@ -967,7 +976,7 @@ class SubtitlePipeline:
                 if not segments:
                     raise RuntimeError("No speech segments detected")
 
-                transcript_source = "qwen3-asr" if backend == "qwen3-asr" else "whisper"
+                transcript_source = backend if backend in {"qwen3-asr", "mlx-qwen3-asr"} else "whisper"
                 write_srt(segments, original_srt)
 
         normalized_lang = (source_language or "unknown").strip().lower()
@@ -1068,6 +1077,8 @@ class SubtitlePipeline:
             return "faster-whisper"
         if backend in {"remote-faster-whisper", "remote_faster_whisper"}:
             return "remote-faster-whisper"
+        if backend == "mlx-qwen3-asr":
+            return backend
         if backend in {"qwen3-asr", "qwen-asr", "qwen3_asr", "qwen_asr"}:
             return "qwen3-asr"
         if backend == "openai":
@@ -1087,8 +1098,10 @@ class SubtitlePipeline:
             return self._transcribe_with_remote_faster_whisper(
                 media_path, progress_cb, language_hint
             )
-        if backend == "qwen3-asr":
-            return self._transcribe_with_qwen3_asr(media_path, progress_cb, language_hint)
+        if backend in {"qwen3-asr", "mlx-qwen3-asr"}:
+            method = (self._transcribe_with_mlx_qwen3_asr if backend == "mlx-qwen3-asr"
+                      else self._transcribe_with_qwen3_asr)
+            return _QWEN_EXECUTOR.submit(method, media_path, progress_cb, language_hint).result()
         if backend == "openrouter":
             return self._transcribe_with_openrouter(media_path, progress_cb, language_hint)
         return self._transcribe_with_faster_whisper(media_path, progress_cb, language_hint)
@@ -1173,6 +1186,45 @@ class SubtitlePipeline:
             progress_cb(55, f"OpenRouter transcription complete ({len(segments)} segments)")
         return segments, source_language
 
+    def _transcribe_with_mlx_qwen3_asr(self, media_path, progress_cb=None, language_hint=None):
+        # Lazy import: MLX is optional and Metal is unavailable on other platforms.
+        try:
+            from mlx_qwen3_asr import Session, ForcedAligner
+        except ImportError as exc:
+            raise RuntimeError("Install media_subtitler[mlx-qwen-asr] in nasorg's venv") from exc
+        if not self.qwen_asr_forced_aligner:
+            raise RuntimeError("MLX subtitle generation requires the Qwen forced aligner")
+
+        def progress(event):
+            if self._active_cancel_event is not None and self._active_cancel_event.is_set():
+                raise RuntimeError("Subtitle job cancelled")
+            if progress_cb:
+                progress_cb(10 + int(45 * event.get("progress", 0)),
+                            "MLX Qwen3-ASR: " + event.get("event", "transcribing"))
+
+        progress({"event": "loading Qwen3-ASR-1.7B and forced aligner"})
+        key = ("mlx", self.qwen_asr_model_name, self.qwen_asr_forced_aligner)
+        if key not in _QWEN_MODELS:
+            _QWEN_MODELS.clear()
+            _QWEN_MODELS[key] = (Session(model=self.qwen_asr_model_name),
+                                 ForcedAligner(self.qwen_asr_forced_aligner))
+        session, aligner = _QWEN_MODELS[key]
+        with tempfile.TemporaryDirectory(prefix="media-subtitler-mlx-") as temp_dir:
+            wav = Path(temp_dir) / "audio.wav"
+            self._extract_audio_mono_16k(media_path, wav, self.audio_stream_index)
+            result = session.transcribe(
+                str(wav), language=self._qwen_language_name(language_hint), context="",
+                return_timestamps=True, forced_aligner=aligner, on_progress=progress,
+            )
+        if result.truncated:
+            raise RuntimeError("Qwen transcription was truncated; refusing incomplete subtitles")
+        items = [(x["text"], float(x["start"]), float(x["end"]))
+                 for x in (result.segments or [])]
+        segments = self._segments_from_timed_items(items)
+        if result.text.strip() and not segments:
+            raise RuntimeError("Qwen forced alignment returned no timestamps")
+        return segments, result.language or language_hint or "unknown"
+
     def _transcribe_with_qwen3_asr(self, media_path, progress_cb=None, language_hint=None):
         if Qwen3ASRModel is None or torch is None:
             raise RuntimeError(
@@ -1183,15 +1235,13 @@ class SubtitlePipeline:
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio for Qwen3-ASR")
 
-        chunk_seconds = max(15, int(self.qwen_asr_chunk_seconds or 90))
+        if not self.qwen_asr_forced_aligner:
+            raise RuntimeError("Qwen subtitle generation requires the forced aligner")
         with tempfile.TemporaryDirectory(prefix="media-subtitler-qwen-asr-") as temp_dir:
-            temp_dir_path = Path(temp_dir)
-            audio_path = temp_dir_path / "audio.wav"
+            audio_path = Path(temp_dir) / "audio.wav"
             if progress_cb:
                 progress_cb(5, "Extracting audio for Qwen3-ASR")
-            self._extract_audio_mono_16k(media_path, audio_path)
-            duration = self._probe_audio_duration(audio_path) or 0.0
-            chunk_paths = self._split_audio_chunks(audio_path, temp_dir_path, chunk_seconds)
+            self._extract_audio_mono_16k(media_path, audio_path, self.audio_stream_index)
 
             if progress_cb:
                 progress_cb(10, f"Loading Qwen3-ASR model ({self.qwen_asr_model_name})")
@@ -1212,35 +1262,23 @@ class SubtitlePipeline:
                     **({"device_map": device} if device else {}),
                 }
 
-            model = Qwen3ASRModel.from_pretrained(self.qwen_asr_model_name, **model_kwargs)
-            qwen_language = self._qwen_language_name(language_hint)
-            context = self._qwen_asr_context(media_path)
-            segments = []
-            source_language = language_hint or "unknown"
-            for index, chunk_path in enumerate(chunk_paths):
-                start = index * chunk_seconds
-                end = min(duration, start + chunk_seconds) if duration else start + chunk_seconds
-                if progress_cb:
-                    progress = min(55, 10 + int(index / max(1, len(chunk_paths)) * 45))
-                    progress_cb(progress, f"Qwen3-ASR transcribing chunk {index + 1}/{len(chunk_paths)}")
-                result = model.transcribe(
-                    audio=str(chunk_path),
-                    language=qwen_language,
-                    context=context,
-                    return_time_stamps=bool(self.qwen_asr_forced_aligner),
-                )[0]
-                source_language = getattr(result, "language", source_language) or source_language
-                text = str(getattr(result, "text", "") or "").strip()
-                aligned = self._segments_from_qwen_timestamps(
-                    getattr(result, "time_stamps", None), start
-                )
-                segments.extend(
-                    aligned or self._segments_from_qwen_text(text, start, end)
-                )
+            key = ("torch", self.qwen_asr_model_name, self.qwen_asr_forced_aligner, device, str(dtype), id(Qwen3ASRModel))
+            if key not in _QWEN_MODELS:
+                _QWEN_MODELS.clear()
+                _QWEN_MODELS[key] = Qwen3ASRModel.from_pretrained(self.qwen_asr_model_name, **model_kwargs)
+            model = _QWEN_MODELS[key]
+            if progress_cb:
+                progress_cb(10, "Qwen3-ASR transcribing with low-energy audio boundaries")
+            result = model.transcribe(
+                audio=str(audio_path), language=self._qwen_language_name(language_hint),
+                context="", return_time_stamps=True,
+            )[0]
+            source_language = getattr(result, "language", None) or language_hint or "unknown"
+            text = str(getattr(result, "text", "") or "").strip()
+            segments = self._segments_from_qwen_timestamps(getattr(result, "time_stamps", None))
+            if text and not segments:
+                raise RuntimeError("Qwen subtitle generation requires valid forced-alignment timestamps")
 
-        segments = self._repair_mojibake_segments(segments)
-        segments = _dedupe_repeated_segments(segments)
-        segments = _collapse_degenerate_repeats(segments)
         if progress_cb:
             progress_cb(55, f"Qwen3-ASR transcription complete ({len(segments)} segments)")
         return segments, source_language
@@ -1310,7 +1348,10 @@ class SubtitlePipeline:
                 continue
             if text:
                 items.append((text, start, end))
+        return SubtitlePipeline._segments_from_timed_items(items, offset)
 
+    @staticmethod
+    def _segments_from_timed_items(items, offset=0.0):
         segments = []
         group = []
 
@@ -1339,14 +1380,11 @@ class SubtitlePipeline:
 
     @staticmethod
     def _qwen_asr_context(media_path):
-        title = Path(media_path).stem
-        return (
-            "Transcribe this media for subtitles. Preserve names, places, product titles, "
-            f"and domain terms from the filename when they are spoken. Filename: {title}"
-        )
+        # Raw release filenames are not a trusted vocabulary prompt.
+        return ""
 
     @staticmethod
-    def _extract_audio_mono_16k(media_path, wav_path):
+    def _extract_audio_mono_16k(media_path, wav_path, audio_stream_index=None):
         ffmpeg_path = _find_media_tool("ffmpeg")
         if not ffmpeg_path:
             raise RuntimeError("ffmpeg is required to prepare audio")
@@ -1367,6 +1405,10 @@ class SubtitlePipeline:
             "pcm_s16le",
             str(wav_path),
         ]
+        if audio_stream_index is not None:
+            if isinstance(audio_stream_index, bool) or not isinstance(audio_stream_index, int) or audio_stream_index < 0:
+                raise ValueError("audio_stream_index must be a nonnegative integer")
+            cmd[-1:-1] = ["-map", f"0:{audio_stream_index}"]
         completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if completed.returncode != 0:
             msg = (completed.stderr or completed.stdout or "unknown ffmpeg error").strip()

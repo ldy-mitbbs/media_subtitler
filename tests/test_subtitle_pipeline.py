@@ -906,7 +906,7 @@ def test_remote_faster_whisper_backend_posts_audio_and_writes_srt(tmp_path, mock
     assert post_mock.call_args.args[0] == "http://gpu.example:5051/transcribe"
 
 
-def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
+def test_qwen3_asr_backend_writes_aligned_srt(tmp_path, mocker):
     media_path = tmp_path / "sample01.mp4"
     media_path.write_bytes(b"fake")
 
@@ -928,6 +928,10 @@ def test_qwen3_asr_backend_writes_approximate_srt(tmp_path, mocker):
     class FakeResult:
         language = "Japanese"
         text = "こんにちは。ありがとう。"
+        time_stamps = [
+            {"text": "こんにちは。", "start_time": 1.0, "end_time": 2.0},
+            {"text": "ありがとう。", "start_time": 3.0, "end_time": 4.0},
+        ]
 
     class FakeModel:
         def transcribe(self, **kwargs):  # noqa: ARG002
@@ -1300,3 +1304,69 @@ def test_whispercpp_vote_failure_falls_back_to_auto(tmp_path, mocker):
     main_cmd = [c for c in mock_run.call_args_list if "-dl" not in c.args[0]][0].args[0]
     assert main_cmd[main_cmd.index("-l") + 1] == "auto"
     assert source_language == "auto"
+
+
+def test_mlx_qwen_session_reuse_and_alignment(tmp_path, mocker):
+    import sys
+    from types import SimpleNamespace
+    from app.models import subtitle_pipeline as module
+    module._QWEN_MODELS.clear()
+    result = SimpleNamespace(text="こんにちは。", language="Japanese", truncated=False,
+                             segments=[{"text": "こんにちは。", "start": 1.25, "end": 2.5}])
+    session = mocker.Mock()
+    session.transcribe.return_value = result
+    factory = mocker.Mock(return_value=session)
+    aligner = mocker.Mock()
+    mocker.patch.dict(sys.modules, {"mlx_qwen3_asr": SimpleNamespace(Session=factory, ForcedAligner=aligner)})
+    for _ in range(2):
+        pipeline = _pipeline(ASR_BACKEND="mlx-qwen3-asr", AUDIO_STREAM_INDEX=2)
+        extract = mocker.patch.object(pipeline, "_extract_audio_mono_16k")
+        segments, language = pipeline._transcribe(tmp_path / "release-tags.mp4", "mlx-qwen3-asr", language_hint="ja")
+        assert segments == [{"text": "こんにちは。", "start": 1.25, "end": 2.5}]
+        assert language == "Japanese"
+        assert extract.call_args.args[2] == 2
+    factory.assert_called_once_with(model="Qwen/Qwen3-ASR-1.7B")
+    assert session.transcribe.call_args.kwargs["context"] == ""
+    assert session.transcribe.call_args.kwargs["language"] == "Japanese"
+    assert session.transcribe.call_args.kwargs["return_timestamps"] is True
+    assert pipeline.asr_model_name == "Qwen/Qwen3-ASR-1.7B"
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"fake")
+    mocker.patch.object(pipeline, "_find_embedded_subtitle_stream", return_value=None)
+    mocker.patch.object(pipeline, "_translate_segments", return_value=[
+        {"text": "こんにちは。\n你好。", "start": 1.25, "end": 2.5},
+    ])
+    completed = pipeline.process(media, source_language_hint="ja")
+    assert completed["transcript_source"] == "mlx-qwen3-asr"
+    assert completed["asr_model"] == "Qwen/Qwen3-ASR-1.7B"
+    assert Path(completed["bilingual_ass"]).is_file()
+    assert "你好" in Path(completed["bilingual_srt"]).read_text()
+    result.truncated = True
+    with pytest.raises(RuntimeError, match="truncated"):
+        pipeline._transcribe(tmp_path / "clip.mp4", "mlx-qwen3-asr")
+    result.truncated = False
+    result.segments = []
+    with pytest.raises(RuntimeError, match="no timestamps"):
+        pipeline._transcribe(tmp_path / "clip.mp4", "mlx-qwen3-asr")
+    module._QWEN_MODELS.clear()
+
+
+def test_audio_extraction_maps_selected_stream(mocker, tmp_path):
+    mocker.patch("app.models.subtitle_pipeline._find_media_tool", return_value="ffmpeg")
+    run = mocker.patch("app.models.subtitle_pipeline.subprocess.run")
+    run.return_value.returncode = 0
+    SubtitlePipeline._extract_audio_mono_16k("video.mkv", tmp_path / "audio.wav", 3)
+    cmd = run.call_args.args[0]
+    assert cmd[cmd.index("-map") + 1] == "0:3"
+
+
+def test_qwen_missing_alignment_is_not_silently_estimated(mocker, tmp_path):
+    from types import SimpleNamespace
+    pipeline = _pipeline(ASR_BACKEND="qwen3-asr")
+    mocker.patch.object(pipeline, "_extract_audio_mono_16k")
+    mocker.patch.object(pipeline, "_qwen_asr_device", return_value="cpu")
+    mocker.patch("app.models.subtitle_pipeline._find_media_tool", return_value="ffmpeg")
+    factory = mocker.patch("app.models.subtitle_pipeline.Qwen3ASRModel")
+    factory.from_pretrained.return_value.transcribe.return_value = [SimpleNamespace(text="こんにちは", time_stamps=None)]
+    with pytest.raises(RuntimeError, match="valid forced-alignment"):
+        pipeline._transcribe_with_qwen3_asr(tmp_path / "clip.wav")
